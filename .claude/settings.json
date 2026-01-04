@@ -1,0 +1,8 @@
+{
+  "preferences": {
+    "build_project": false
+  },
+  "notes": [
+    "Não executar build do projeto automaticamente"
+  ]
+}
