@@ -1,33 +1,24 @@
 # Pet Care Schedule - Tarefas Pendentes
 
-## Integrações Admin (Prioridade Alta)
+## Integrações Admin (Concluído)
 
-- [ ] Finalizar integrações da visão admin
-
-  - Verificar se todas as páginas admin estão funcionando corretamente
-  - Testar CRUD de serviços
-  - Testar CRUD de planos
-  - Testar gerenciamento de clientes
-  - Testar calendário e bloqueio de horários
-  - Testar configurações
+- [x] Finalizar integrações da visão admin
+  - Serviços: CRUD completo funcionando
+  - Planos: CRUD completo funcionando
+  - Clientes: Listagem e busca funcionando
+  - Agendamentos: Listagem, filtros e mudança de status funcionando
+  - Calendário: Visualização e bloqueio de horários funcionando
+  - Configurações: Carregamento e salvamento funcionando
 
 - [ ] Agendamentos - Permitir reativar agendamentos cancelados
-
   - Agendamentos cancelados devem poder ser editados
   - Adicionar opção de voltar status para "pendente" ou "confirmado"
   - Implementar botões de ação no modal de detalhes para agendamentos cancelados
 
-- [ ] Configurações - Integrar informações
-
-  - Integrar dados de configurações com o banco de dados
-  - Ajustar integração da agenda (horários, dias de funcionamento)
-  - Salvar e carregar configurações do Supabase
-
-- [ ] Agenda (Calendar) - Ajustar integração
+- [ ] Agenda (Calendar) - Melhorias futuras
   - Carregar horários de funcionamento das configurações do banco
   - Gerar timeSlots dinamicamente baseado nas configurações (início, fim, duração)
   - Respeitar dias de funcionamento configurados
-  - Integrar bloqueio de horários com o banco de dados
 
 ## Emails (Prioridade Alta)
 
@@ -37,28 +28,16 @@
   - Testar envio de lembrete de agendamento
   - Testar envio de cancelamento
 
-## Deploy (Prioridade Alta)
+## Deploy (Concluído)
 
-- [ ] Subir no GitHub
+- [x] Subir no GitHub
+  - Repositório: https://github.com/MatheusJosue/PetCareSchedule
 
-  - Criar repositório
-  - Fazer push do código
-  - Configurar .gitignore adequadamente
+- [x] Subir na Vercel
+  - URL: https://pet-care-schedule-flxkjmh94-matheuscerqueiras-projects.vercel.app
+  - Variáveis de ambiente configuradas
 
-- [ ] Subir na Vercel
-
-  - Conectar repositório GitHub
-  - Configurar variáveis de ambiente:
-    - `NEXT_PUBLIC_SUPABASE_URL`
-    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-    - Outras variáveis necessárias
-
-- [ ] Configurar redirect URL no Supabase
-  - Acessar Supabase Dashboard > Authentication > URL Configuration
-  - Adicionar URL de produção da Vercel em "Site URL"
-  - Adicionar URLs de redirect em "Redirect URLs":
-    - `https://seu-dominio.vercel.app/auth/callback`
-    - `https://seu-dominio.vercel.app/login`
+- [x] Configurar redirect URL no Supabase
 
 ## Notas
 

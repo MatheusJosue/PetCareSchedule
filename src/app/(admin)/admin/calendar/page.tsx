@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/toast"
 import {
   getCalendarAppointmentsClient,
   updateAppointmentStatusClient,
+  blockSlotClient,
 } from "@/lib/queries/admin-client"
 import {
   ChevronLeft,
@@ -45,7 +46,9 @@ export default function AdminCalendarPage() {
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false)
   const [selectedDateForBlock, setSelectedDateForBlock] = useState<Date | null>(null)
+  const [selectedTimeForBlock, setSelectedTimeForBlock] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isBlocking, setIsBlocking] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([])
 
@@ -205,9 +208,30 @@ export default function AdminCalendarPage() {
     }
   }
 
-  const handleBlockSlot = () => {
-    addToast("Horário bloqueado com sucesso!", "success")
-    setIsBlockModalOpen(false)
+  const handleBlockSlot = async () => {
+    if (!selectedDateForBlock || !selectedTimeForBlock) return
+
+    setIsBlocking(true)
+    try {
+      const dateKey = formatDateKey(selectedDateForBlock)
+      // Calculate end time (1 hour slot)
+      const [hours, minutes] = selectedTimeForBlock.split(':').map(Number)
+      const endHours = hours + 1
+      const endTime = `${endHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+
+      await blockSlotClient(dateKey, selectedTimeForBlock, endTime, 'Bloqueado pelo administrador')
+      addToast("Horário bloqueado com sucesso!", "success")
+      setIsBlockModalOpen(false)
+      setSelectedDateForBlock(null)
+      setSelectedTimeForBlock(null)
+      // Refresh appointments to update the view
+      fetchAppointments()
+    } catch (error) {
+      console.error('Error blocking slot:', error)
+      addToast("Erro ao bloquear horário", "error")
+    } finally {
+      setIsBlocking(false)
+    }
   }
 
   // Loading skeleton
@@ -446,6 +470,7 @@ export default function AdminCalendarPage() {
                             }}
                             onClick={() => {
                               setSelectedDateForBlock(day)
+                              setSelectedTimeForBlock(time)
                               setIsBlockModalOpen(true)
                             }}
                           >
@@ -553,6 +578,7 @@ export default function AdminCalendarPage() {
                           }}
                           onClick={() => {
                             setSelectedDateForBlock(currentDate)
+                            setSelectedTimeForBlock(time)
                             setIsBlockModalOpen(true)
                           }}
                         >
@@ -686,17 +712,40 @@ export default function AdminCalendarPage() {
       {/* Block Slot Modal */}
       <Modal
         isOpen={isBlockModalOpen}
-        onClose={() => setIsBlockModalOpen(false)}
+        onClose={() => {
+          setIsBlockModalOpen(false)
+          setSelectedDateForBlock(null)
+          setSelectedTimeForBlock(null)
+        }}
         title="Bloquear Horário"
       >
-        <p style={{ color: 'var(--text-muted)' }}>
-          Deseja bloquear este horário? Ele ficará indisponível para novos agendamentos.
-        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {selectedDateForBlock && selectedTimeForBlock && (
+            <div
+              className="rounded-xl"
+              style={{
+                padding: '12px 16px',
+                background: 'var(--accent-purple-bg)',
+                color: 'var(--accent-purple)',
+                fontWeight: 500
+              }}
+            >
+              {selectedDateForBlock.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })} às {selectedTimeForBlock}
+            </div>
+          )}
+          <p style={{ color: 'var(--text-muted)' }}>
+            Deseja bloquear este horário? Ele ficará indisponível para novos agendamentos.
+          </p>
+        </div>
         <ModalActions>
-          <Button variant="secondary" onClick={() => setIsBlockModalOpen(false)}>
+          <Button variant="secondary" onClick={() => {
+            setIsBlockModalOpen(false)
+            setSelectedDateForBlock(null)
+            setSelectedTimeForBlock(null)
+          }}>
             Cancelar
           </Button>
-          <Button onClick={handleBlockSlot}>
+          <Button onClick={handleBlockSlot} isLoading={isBlocking}>
             Bloquear
           </Button>
         </ModalActions>
