@@ -5,7 +5,12 @@
       "Bash(npm run build:*)",
       "Bash(find:*)",
       "Bash(timeout 10 npm run dev)",
-      "Bash(git remote add:*)"
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(vercel --version:*)",
+      "Bash(vercel:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

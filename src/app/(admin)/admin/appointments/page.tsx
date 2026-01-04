@@ -245,7 +245,7 @@ export default function AdminAppointmentsPage() {
   }
 
   const getConfirmModalContent = () => {
-    if (!confirmAction) return { title: '', message: '', buttonText: '', variant: 'primary' as const }
+    if (!confirmAction) return { title: '', message: '', buttonText: '', variant: 'default' as const }
 
     switch (confirmAction.type) {
       case 'confirm':
@@ -253,7 +253,7 @@ export default function AdminAppointmentsPage() {
           title: 'Confirmar Agendamento',
           message: 'Tem certeza que deseja confirmar este agendamento? O cliente será notificado.',
           buttonText: 'Confirmar',
-          variant: 'primary' as const,
+          variant: 'default' as const,
         }
       case 'cancel':
         return {
@@ -267,7 +267,7 @@ export default function AdminAppointmentsPage() {
           title: 'Concluir Agendamento',
           message: 'Tem certeza que deseja marcar este agendamento como concluído?',
           buttonText: 'Concluir',
-          variant: 'primary' as const,
+          variant: 'default' as const,
         }
     }
   }

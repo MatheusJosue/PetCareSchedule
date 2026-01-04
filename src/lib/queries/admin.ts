@@ -167,11 +167,12 @@ export async function getUpcomingAppointments(limit: number = 10): Promise<Upcom
   if (confirmedError) throw confirmedError
 
   // Combine and sort, prioritizing pending
-  const allAppointments = [...(pendingData || []), ...(confirmedData || [])]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allAppointments = [...(pendingData || []), ...(confirmedData || [])] as any[]
 
   // Remove duplicates (if any) and sort by date/time
   const uniqueAppointments = allAppointments
-    .filter((apt, index, self) => self.findIndex(a => a.id === apt.id) === index)
+    .filter((apt, index, self) => self.findIndex((a: any) => a.id === apt.id) === index)
     .sort((a, b) => {
       // Pending always comes first
       if (a.status === 'pending' && b.status !== 'pending') return -1
@@ -183,7 +184,7 @@ export async function getUpcomingAppointments(limit: number = 10): Promise<Upcom
     })
     .slice(0, limit)
 
-  return uniqueAppointments as unknown as UpcomingAppointment[]
+  return uniqueAppointments as UpcomingAppointment[]
 }
 
 // ============================================
