@@ -10,10 +10,9 @@
   - Calendário: Visualização e bloqueio de horários funcionando
   - Configurações: Carregamento e salvamento funcionando
 
-- [ ] Agendamentos - Permitir reativar agendamentos cancelados
-  - Agendamentos cancelados devem poder ser editados
-  - Adicionar opção de voltar status para "pendente" ou "confirmado"
-  - Implementar botões de ação no modal de detalhes para agendamentos cancelados
+- [x] Agendamentos - Permitir reativar agendamentos cancelados
+  - Agendamentos cancelados podem ser reativados como "pendente" ou "confirmado"
+  - Botões de ação implementados nos cards de agendamentos cancelados
 
 - [ ] Agenda (Calendar) - Melhorias futuras
   - Carregar horários de funcionamento das configurações do banco

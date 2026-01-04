@@ -27,6 +27,8 @@ import {
   User,
   Ruler,
   AlertTriangle,
+  Scissors,
+  RotateCcw,
 } from "lucide-react"
 
 interface Appointment {
@@ -88,7 +90,7 @@ export default function AdminAppointmentsPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
-  const [confirmAction, setConfirmAction] = useState<{ type: 'confirm' | 'cancel' | 'complete'; id: string } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ type: 'confirm' | 'cancel' | 'complete' | 'reactivate_pending' | 'reactivate_confirmed'; id: string } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isUpdating, setIsUpdating] = useState(false)
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -229,17 +231,19 @@ export default function AdminAppointmentsPage() {
     }
   }
 
-  const openConfirmModal = (type: 'confirm' | 'cancel' | 'complete', id: string) => {
+  const openConfirmModal = (type: 'confirm' | 'cancel' | 'complete' | 'reactivate_pending' | 'reactivate_confirmed', id: string) => {
     setConfirmAction({ type, id })
     setIsConfirmModalOpen(true)
   }
 
   const executeConfirmAction = () => {
     if (!confirmAction) return
-    const statusMap = {
-      confirm: 'confirmed' as const,
-      cancel: 'cancelled' as const,
-      complete: 'completed' as const,
+    const statusMap: Record<string, 'pending' | 'confirmed' | 'completed' | 'cancelled'> = {
+      confirm: 'confirmed',
+      cancel: 'cancelled',
+      complete: 'completed',
+      reactivate_pending: 'pending',
+      reactivate_confirmed: 'confirmed',
     }
     handleStatusChange(confirmAction.id, statusMap[confirmAction.type])
   }
@@ -269,6 +273,22 @@ export default function AdminAppointmentsPage() {
           buttonText: 'Concluir',
           variant: 'default' as const,
         }
+      case 'reactivate_pending':
+        return {
+          title: 'Reativar como Pendente',
+          message: 'Tem certeza que deseja reativar este agendamento cancelado como pendente?',
+          buttonText: 'Reativar',
+          variant: 'default' as const,
+        }
+      case 'reactivate_confirmed':
+        return {
+          title: 'Reativar como Confirmado',
+          message: 'Tem certeza que deseja reativar este agendamento cancelado como confirmado?',
+          buttonText: 'Reativar',
+          variant: 'default' as const,
+        }
+      default:
+        return { title: '', message: '', buttonText: '', variant: 'default' as const }
     }
   }
 
@@ -416,121 +436,213 @@ export default function AdminAppointmentsPage() {
         </div>
 
         <div style={{ padding: '12px 16px' }} className="sm:p-6">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {filteredAppointments.map((appointment) => (
-              <div
-                key={appointment.id}
-                className="flex flex-col rounded-xl border transition-all hover:shadow-md"
-                style={{
-                  padding: '16px',
-                  gap: '12px',
-                  background: 'var(--bg-tertiary)',
-                  borderColor: 'var(--border-primary)'
-                }}
-              >
-                {/* Top row: Info + Status */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3" style={{ gap: '16px' }}>
+            {filteredAppointments.map((appointment) => {
+              const statusColors: Record<string, { bg: string; border: string; text: string }> = {
+                pending: { bg: 'var(--accent-yellow-bg)', border: 'var(--accent-yellow)', text: 'var(--accent-yellow)' },
+                confirmed: { bg: 'var(--accent-blue-bg)', border: 'var(--accent-blue)', text: 'var(--accent-blue)' },
+                completed: { bg: 'var(--accent-green-bg)', border: 'var(--accent-green)', text: 'var(--accent-green)' },
+                cancelled: { bg: 'var(--accent-red-bg)', border: 'var(--accent-red)', text: 'var(--accent-red)' },
+              }
+              const colors = statusColors[appointment.status] || statusColors.pending
+
+              return (
                 <div
-                  className="flex flex-col sm:flex-row sm:items-center cursor-pointer"
-                  style={{ gap: '12px' }}
+                  key={appointment.id}
+                  className="flex flex-col rounded-2xl border-l-4 transition-all hover:shadow-lg cursor-pointer"
+                  style={{
+                    background: 'var(--bg-tertiary)',
+                    borderColor: 'var(--border-primary)',
+                    borderLeftColor: colors.border,
+                    overflow: 'hidden'
+                  }}
                   onClick={() => {
                     setSelectedAppointment(appointment)
                     setIsDetailModalOpen(true)
                   }}
                 >
-                  <div className="flex items-center flex-1" style={{ gap: '12px' }}>
-                    {appointment.pet?.photo_url ? (
-                      <div className="h-12 w-12 rounded-xl overflow-hidden flex-shrink-0">
-                        <Image
-                          src={appointment.pet.photo_url}
-                          alt={appointment.pet.name}
-                          width={48}
-                          height={48}
-                          className="object-cover w-full h-full"
-                        />
+                  {/* Header with date/time and status */}
+                  <div
+                    className="flex items-center justify-between"
+                    style={{
+                      padding: '12px 16px',
+                      background: colors.bg,
+                    }}
+                  >
+                    <div className="flex items-center" style={{ gap: '12px' }}>
+                      <div
+                        className="flex items-center justify-center rounded-lg"
+                        style={{
+                          width: '44px',
+                          height: '44px',
+                          background: 'var(--bg-primary)',
+                        }}
+                      >
+                        <div className="text-center">
+                          <p className="text-xs font-medium uppercase" style={{ color: 'var(--text-muted)', lineHeight: 1 }}>
+                            {new Date(appointment.scheduled_date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}
+                          </p>
+                          <p className="text-lg font-bold" style={{ color: 'var(--text-primary)', lineHeight: 1.1 }}>
+                            {new Date(appointment.scheduled_date + 'T12:00:00').getDate()}
+                          </p>
+                        </div>
                       </div>
-                    ) : (
-                      <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#a855f7] flex items-center justify-center text-white flex-shrink-0 shadow-lg shadow-purple-400/20">
-                        <PawPrint className="h-6 w-6" />
-                      </div>
-                    )}
-
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                        {appointment.user?.name || 'Cliente'}
-                      </p>
-                      <p className="text-sm truncate" style={{ color: 'var(--text-muted)' }}>
-                        {appointment.pet?.name || 'Pet'} • {appointment.service?.name || 'Serviço'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end" style={{ gap: '12px' }}>
-                    <div className="text-sm">
-                      <div className="flex items-center" style={{ gap: '4px', color: 'var(--text-muted)' }}>
-                        <Calendar className="h-3.5 w-3.5" />
-                        {formatDate(appointment.scheduled_date)}
-                      </div>
-                      <div className="flex items-center font-medium" style={{ gap: '4px', color: 'var(--text-primary)' }}>
-                        <Clock className="h-3.5 w-3.5" />
-                        {appointment.scheduled_time?.slice(0, 5)}
+                      <div>
+                        <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                          {new Date(appointment.scheduled_date + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}
+                        </p>
+                        <p className="text-lg font-bold" style={{ color: colors.text }}>
+                          {appointment.scheduled_time?.slice(0, 5)}
+                        </p>
                       </div>
                     </div>
-
                     <Badge variant={statusVariants[appointment.status] || 'info'}>
                       {statusLabels[appointment.status] || appointment.status}
                     </Badge>
                   </div>
-                </div>
 
-                {/* Bottom row: Action Buttons */}
-                {(appointment.status === "pending" || appointment.status === "confirmed") && (
-                  <div
-                    className="grid grid-cols-2 border-t pt-3"
-                    style={{ gap: '12px', borderColor: 'var(--border-primary)' }}
-                  >
-                    <Button
-                      variant="secondary"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openConfirmModal('cancel', appointment.id)
+                  {/* Content */}
+                  <div style={{ padding: '16px' }}>
+                    {/* Client & Pet Info */}
+                    <div className="flex items-start" style={{ gap: '12px', marginBottom: '12px' }}>
+                      {appointment.pet?.photo_url ? (
+                        <div className="h-14 w-14 rounded-xl overflow-hidden flex-shrink-0 border-2" style={{ borderColor: colors.border }}>
+                          <Image
+                            src={appointment.pet.photo_url}
+                            alt={appointment.pet.name}
+                            width={56}
+                            height={56}
+                            className="object-cover w-full h-full"
+                          />
+                        </div>
+                      ) : (
+                        <div
+                          className="h-14 w-14 rounded-xl flex items-center justify-center text-white flex-shrink-0"
+                          style={{ background: `linear-gradient(135deg, ${colors.border}, var(--accent-purple))` }}
+                        >
+                          <PawPrint className="h-7 w-7" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+                          {appointment.pet?.name || 'Pet'}
+                        </p>
+                        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                          {appointment.pet?.breed || appointment.pet?.species || 'Sem raça definida'}
+                          {appointment.pet?.size && ` • ${appointment.pet.size}`}
+                        </p>
+                        <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          <User className="h-3.5 w-3.5 inline mr-1" style={{ verticalAlign: 'text-bottom' }} />
+                          {appointment.user?.name || 'Cliente'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Service */}
+                    <div
+                      className="flex items-center justify-between rounded-lg"
+                      style={{
+                        padding: '10px 12px',
+                        background: 'var(--bg-secondary)',
+                        marginBottom: '12px'
                       }}
-                      disabled={isUpdating}
-                      style={{ height: '48px' }}
                     >
-                      <X className="h-4 w-4 mr-2" />
-                      Cancelar
-                    </Button>
-                    {appointment.status === "pending" && (
-                      <Button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedAppointment(appointment)
-                          setIsDetailModalOpen(true)
-                        }}
-                        disabled={isUpdating}
-                        style={{ height: '48px' }}
+                      <div className="flex items-center" style={{ gap: '8px' }}>
+                        <Scissors className="h-4 w-4" style={{ color: 'var(--accent-purple)' }} />
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {appointment.service?.name || 'Serviço'}
+                        </span>
+                      </div>
+                      {appointment.service?.base_price && (
+                        <span className="font-bold" style={{ color: 'var(--accent-green)' }}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(appointment.service.base_price)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Action Buttons */}
+                    {(appointment.status === "pending" || appointment.status === "confirmed") && (
+                      <div
+                        className="grid grid-cols-2"
+                        style={{ gap: '8px' }}
                       >
-                        <Check className="h-4 w-4 mr-2" />
-                        Confirmar
-                      </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openConfirmModal('cancel', appointment.id)
+                          }}
+                          disabled={isUpdating}
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Cancelar
+                        </Button>
+                        {appointment.status === "pending" && (
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedAppointment(appointment)
+                              setIsDetailModalOpen(true)
+                            }}
+                            disabled={isUpdating}
+                          >
+                            <Check className="h-4 w-4 mr-1" />
+                            Confirmar
+                          </Button>
+                        )}
+                        {appointment.status === "confirmed" && (
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openConfirmModal('complete', appointment.id)
+                            }}
+                            disabled={isUpdating}
+                          >
+                            <Check className="h-4 w-4 mr-1" />
+                            Concluir
+                          </Button>
+                        )}
+                      </div>
                     )}
-                    {appointment.status === "confirmed" && (
-                      <Button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openConfirmModal('complete', appointment.id)
-                        }}
-                        disabled={isUpdating}
-                        style={{ height: '48px' }}
+
+                    {/* Reactivate cancelled appointments */}
+                    {appointment.status === "cancelled" && (
+                      <div
+                        className="grid grid-cols-2"
+                        style={{ gap: '8px' }}
                       >
-                        <Check className="h-4 w-4 mr-2" />
-                        Concluir
-                      </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openConfirmModal('reactivate_pending', appointment.id)
+                          }}
+                          disabled={isUpdating}
+                        >
+                          <RotateCcw className="h-4 w-4 mr-1" />
+                          Pendente
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openConfirmModal('reactivate_confirmed', appointment.id)
+                          }}
+                          disabled={isUpdating}
+                        >
+                          <RotateCcw className="h-4 w-4 mr-1" />
+                          Confirmado
+                        </Button>
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              )
+            })}
 
             {filteredAppointments.length === 0 && (
               <div className="text-center" style={{ padding: '32px', color: 'var(--text-muted)' }}>
