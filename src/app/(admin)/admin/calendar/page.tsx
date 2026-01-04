@@ -73,7 +73,11 @@ export default function AdminCalendarPage() {
   }
 
   const formatDateKey = (date: Date): string => {
-    return date.toISOString().split("T")[0]
+    // Use local date format YYYY-MM-DD to match database
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   const weekDays = getWeekDays(currentDate)
@@ -81,14 +85,17 @@ export default function AdminCalendarPage() {
   const fetchAppointments = useCallback(async () => {
     try {
       setIsLoading(true)
+      const days = getWeekDays(currentDate)
       const startDate = viewMode === "week"
-        ? formatDateKey(weekDays[0])
+        ? formatDateKey(days[0])
         : formatDateKey(currentDate)
       const endDate = viewMode === "week"
-        ? formatDateKey(weekDays[6])
+        ? formatDateKey(days[6])
         : formatDateKey(currentDate)
 
+      console.log('Fetching appointments:', { startDate, endDate })
       const data = await getCalendarAppointmentsClient(startDate, endDate)
+      console.log('Appointments loaded:', data)
       setAppointments(data)
     } catch (error) {
       console.error('Error fetching appointments:', error)
@@ -121,9 +128,14 @@ export default function AdminCalendarPage() {
 
   const getSlotStatus = (date: Date, time: string): TimeSlot => {
     const dateKey = formatDateKey(date)
-    const appointment = appointments.find(
-      apt => apt.scheduled_date === dateKey && apt.scheduled_time?.slice(0, 5) === time
-    )
+    const appointment = appointments.find(apt => {
+      // Compare date
+      const dateMatch = apt.scheduled_date === dateKey
+      // Compare time - handle different formats (HH:MM:SS or HH:MM)
+      const aptTime = apt.scheduled_time?.slice(0, 5)
+      const timeMatch = aptTime === time
+      return dateMatch && timeMatch
+    })
 
     return {
       time,
