@@ -442,9 +442,10 @@ export default function AdminCalendarPage() {
                       >
                         {slot.appointment ? (
                           <div
-                            className="p-2 rounded-lg text-xs cursor-pointer transition-shadow hover:shadow-md"
+                            className="h-full rounded-xl cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] border-l-4"
                             onClick={() => setSelectedSlot(slot)}
                             style={{
+                              padding: '8px 10px',
                               background: slot.appointment.status === 'pending'
                                 ? 'var(--accent-yellow-bg)'
                                 : slot.appointment.status === 'confirmed'
@@ -452,18 +453,56 @@ export default function AdminCalendarPage() {
                                 : slot.appointment.status === 'completed'
                                 ? 'var(--accent-green-bg)'
                                 : 'var(--accent-red-bg)',
-                              color: slot.appointment.status === 'pending'
+                              borderLeftColor: slot.appointment.status === 'pending'
                                 ? 'var(--accent-yellow)'
                                 : slot.appointment.status === 'confirmed'
                                 ? 'var(--accent-blue)'
                                 : slot.appointment.status === 'completed'
                                 ? 'var(--accent-green)'
-                                : 'var(--accent-red)'
+                                : 'var(--accent-red)',
                             }}
                           >
-                            <p className="font-semibold truncate">{slot.appointment.user?.name || 'Cliente'}</p>
-                            <p className="truncate">{slot.appointment.pet?.name || 'Pet'}</p>
-                            <p className="truncate opacity-75">{slot.appointment.service?.name || 'Serviço'}</p>
+                            <div className="flex items-center gap-1 mb-1">
+                              <PawPrint
+                                className="h-3 w-3 flex-shrink-0"
+                                style={{
+                                  color: slot.appointment.status === 'pending'
+                                    ? 'var(--accent-yellow)'
+                                    : slot.appointment.status === 'confirmed'
+                                    ? 'var(--accent-blue)'
+                                    : slot.appointment.status === 'completed'
+                                    ? 'var(--accent-green)'
+                                    : 'var(--accent-red)'
+                                }}
+                              />
+                              <p
+                                className="text-xs font-bold truncate"
+                                style={{ color: 'var(--text-primary)' }}
+                              >
+                                {slot.appointment.pet?.name || 'Pet'}
+                              </p>
+                            </div>
+                            <p
+                              className="text-[10px] truncate"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              {slot.appointment.user?.name || 'Cliente'}
+                            </p>
+                            <div
+                              className="mt-1 px-1.5 py-0.5 rounded text-[9px] font-medium inline-block"
+                              style={{
+                                background: 'var(--bg-primary)',
+                                color: slot.appointment.status === 'pending'
+                                  ? 'var(--accent-yellow)'
+                                  : slot.appointment.status === 'confirmed'
+                                  ? 'var(--accent-blue)'
+                                  : slot.appointment.status === 'completed'
+                                  ? 'var(--accent-green)'
+                                  : 'var(--accent-red)'
+                              }}
+                            >
+                              {slot.appointment.service?.name || 'Serviço'}
+                            </div>
                           </div>
                         ) : (
                           <button
@@ -520,21 +559,61 @@ export default function AdminCalendarPage() {
                     <div className="flex-1" style={{ padding: '12px' }}>
                       {slot.appointment ? (
                         <div
-                          className="p-4 rounded-xl cursor-pointer transition-shadow hover:shadow-md"
+                          className="rounded-2xl cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] border-l-4"
                           onClick={() => setSelectedSlot(slot)}
                           style={{
+                            padding: '16px',
                             background: slot.appointment.status === 'pending'
                               ? 'var(--accent-yellow-bg)'
                               : slot.appointment.status === 'confirmed'
                               ? 'var(--accent-blue-bg)'
                               : slot.appointment.status === 'completed'
                               ? 'var(--accent-green-bg)'
-                              : 'var(--accent-red-bg)'
+                              : 'var(--accent-red-bg)',
+                            borderLeftColor: slot.appointment.status === 'pending'
+                              ? 'var(--accent-yellow)'
+                              : slot.appointment.status === 'confirmed'
+                              ? 'var(--accent-blue)'
+                              : slot.appointment.status === 'completed'
+                              ? 'var(--accent-green)'
+                              : 'var(--accent-red)',
                           }}
                         >
-                          <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
-                            <p
-                              className="font-semibold"
+                          <div className="flex items-start justify-between" style={{ marginBottom: '12px' }}>
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="h-10 w-10 rounded-xl flex items-center justify-center"
+                                style={{
+                                  background: slot.appointment.status === 'pending'
+                                    ? 'var(--accent-yellow)'
+                                    : slot.appointment.status === 'confirmed'
+                                    ? 'var(--accent-blue)'
+                                    : slot.appointment.status === 'completed'
+                                    ? 'var(--accent-green)'
+                                    : 'var(--accent-red)',
+                                }}
+                              >
+                                <PawPrint className="h-5 w-5 text-white" />
+                              </div>
+                              <div>
+                                <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                                  {slot.appointment.pet?.name || 'Pet'}
+                                </p>
+                                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                                  {slot.appointment.user?.name || 'Cliente'}
+                                </p>
+                              </div>
+                            </div>
+                            <Badge variant={getStatusVariant(slot.appointment.status)}>
+                              {getStatusLabel(slot.appointment.status)}
+                            </Badge>
+                          </div>
+                          <div
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                            style={{ background: 'var(--bg-primary)' }}
+                          >
+                            <Clock
+                              className="h-4 w-4"
                               style={{
                                 color: slot.appointment.status === 'pending'
                                   ? 'var(--accent-yellow)'
@@ -544,31 +623,10 @@ export default function AdminCalendarPage() {
                                   ? 'var(--accent-green)'
                                   : 'var(--accent-red)'
                               }}
-                            >
-                              {slot.appointment.user?.name || 'Cliente'}
-                            </p>
-                            <Badge variant={getStatusVariant(slot.appointment.status)}>
-                              {getStatusLabel(slot.appointment.status)}
-                            </Badge>
-                          </div>
-                          <div
-                            className="flex items-center text-sm"
-                            style={{
-                              gap: '16px',
-                              color: slot.appointment.status === 'pending'
-                                ? 'var(--accent-yellow)'
-                                : slot.appointment.status === 'confirmed'
-                                ? 'var(--accent-blue)'
-                                : slot.appointment.status === 'completed'
-                                ? 'var(--accent-green)'
-                                : 'var(--accent-red)'
-                            }}
-                          >
-                            <span className="flex items-center" style={{ gap: '4px' }}>
-                              <PawPrint className="h-4 w-4" />
-                              {slot.appointment.pet?.name || 'Pet'}
+                            />
+                            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                              {slot.appointment.service?.name || 'Serviço'}
                             </span>
-                            <span>{slot.appointment.service?.name || 'Serviço'}</span>
                           </div>
                         </div>
                       ) : (
