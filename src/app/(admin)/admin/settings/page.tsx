@@ -73,12 +73,22 @@ export default function AdminSettingsPage() {
       setIsLoading(true)
       const settings = await getSettingsClient()
 
-      // Parse business settings
-      if (settings.business) {
-        setBusinessSettings(settings.business as BusinessSettings)
-      }
+      // Map individual settings keys to business settings object
+      const businessHours = settings.business_hours as { start?: string; end?: string; days?: number[] } | undefined
 
-      // Parse notification settings
+      setBusinessSettings({
+        name: (settings.company_name as string) || defaultBusinessSettings.name,
+        email: (settings.notification_email as string) || defaultBusinessSettings.email,
+        phone: (settings.company_phone as string) || defaultBusinessSettings.phone,
+        address: (settings.company_address as string) || defaultBusinessSettings.address,
+        description: (settings.company_description as string) || defaultBusinessSettings.description,
+        openingTime: businessHours?.start || defaultBusinessSettings.openingTime,
+        closingTime: businessHours?.end || defaultBusinessSettings.closingTime,
+        slotDuration: Number(settings.slot_duration) || defaultBusinessSettings.slotDuration,
+        maxAdvanceDays: Number(settings.advance_booking_days) || defaultBusinessSettings.maxAdvanceDays,
+      })
+
+      // Parse notification settings if exists
       if (settings.notifications) {
         setNotificationSettings(settings.notifications as NotificationSettings)
       }
@@ -97,7 +107,21 @@ export default function AdminSettingsPage() {
   const handleSaveBusinessSettings = async () => {
     setIsSaving(true)
     try {
-      await updateSettingClient('business', businessSettings)
+      // Save each setting individually to match database structure
+      await Promise.all([
+        updateSettingClient('company_name', businessSettings.name),
+        updateSettingClient('notification_email', businessSettings.email),
+        updateSettingClient('company_phone', businessSettings.phone),
+        updateSettingClient('company_address', businessSettings.address),
+        updateSettingClient('company_description', businessSettings.description),
+        updateSettingClient('business_hours', {
+          start: businessSettings.openingTime,
+          end: businessSettings.closingTime,
+          days: [1, 2, 3, 4, 5, 6] // Monday to Saturday
+        }),
+        updateSettingClient('slot_duration', businessSettings.slotDuration),
+        updateSettingClient('advance_booking_days', businessSettings.maxAdvanceDays),
+      ])
       addToast("Configurações salvas com sucesso!", "success")
     } catch (error) {
       console.error('Error saving business settings:', error)
