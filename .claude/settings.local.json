@@ -12,7 +12,16 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(npx tsx:*)",
-      "Bash(del \"c:\\\\Users\\\\Mathe\\\\OneDrive\\\\Documentos\\\\Coding\\\\Pessoal\\\\petcareschedule\\\\pet-care-schedule\\\\test-email.ts\")"
+      "Bash(del \"c:\\\\Users\\\\Mathe\\\\OneDrive\\\\Documentos\\\\Coding\\\\Pessoal\\\\petcareschedule\\\\pet-care-schedule\\\\test-email.ts\")",
+      "Bash(npx tsc:*)",
+      "Skill(glm-plan-usage:usage-query)",
+      "Skill(glm-plan-usage:usage-query-skill)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(node:*)",
+      "Bash(findstr:*)",
+      "Bash(cat:*)",
+      "WebSearch"
     ]
   }
 }

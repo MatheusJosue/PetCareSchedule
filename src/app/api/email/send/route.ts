@@ -9,20 +9,14 @@ import {
   sendAppointmentCancelledToAdmin
 } from '@/lib/services/email'
 
-// Type definitions for appointment query with joins
-type AppointmentWithRelations = {
-  id: string
-  scheduled_date: string
-  scheduled_time: string
-  pet: { id: string; name: string } | null
-  service: { id: string; name: string } | null
-  user: { id: string; name: string | null; email: string; phone: string | null } | null
-}
-
 export async function POST(request: NextRequest) {
   try {
+    console.log('📧 Email API called')
+
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
+
+    console.log('User authenticated:', !!user)
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -31,6 +25,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { type, appointmentId, email } = body
 
+    console.log('Email request body:', { type, appointmentId, email })
+
     let result: { success: boolean; messageId?: string; error?: string } = {
       success: false,
       error: 'No email was sent'
@@ -38,6 +34,7 @@ export async function POST(request: NextRequest) {
 
     // Handle welcome email (after registration)
     if (type === 'welcome') {
+      console.log('Sending welcome email')
       result = await sendWelcomeEmail({
         recipientName: body.name || user.user_metadata?.name || 'Cliente',
         recipientEmail: email || user.email || ''
@@ -46,37 +43,52 @@ export async function POST(request: NextRequest) {
 
     // Get appointment details for appointment-related emails
     else if (type !== 'welcome') {
+      console.log('Fetching appointment details for:', appointmentId)
+
+      // Get appointment without joins first
       const { data: appointment, error: appointmentError } = await supabase
         .from('appointments')
-        .select(`
-          *,
-          pet:pets(id, name),
-          service:services(id, name),
-          user:users(id, name, email, phone)
-        `)
+        .select('*')
         .eq('id', appointmentId)
-        .single() as { data: AppointmentWithRelations | null; error: any }
+        .single()
 
       if (appointmentError || !appointment) {
+        console.error('Appointment not found:', appointmentError)
         return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
       }
 
+      console.log('Appointment found:', appointment.id)
+
+      // Get related data separately
+      const [{ data: pet }, { data: service }, { data: userData }] = await Promise.all([
+        supabase.from('pets').select('id, name').eq('id', appointment.pet_id).single(),
+        supabase.from('services').select('id, name').eq('id', appointment.service_id).single(),
+        supabase.from('users').select('id, name, email, phone').eq('id', appointment.user_id).single()
+      ])
+
+      console.log('Related data:', { pet, service, userData })
+
+      if (!pet || !service || !userData) {
+        console.error('Missing related data:', { pet, service, userData })
+        return NextResponse.json({ error: 'Missing appointment details' }, { status: 500 })
+      }
+
       const clientEmailData = {
-        recipientName: appointment.user?.name || 'Cliente',
-        recipientEmail: appointment.user?.email || user.email || '',
-        petName: appointment.pet?.name || 'Pet',
-        serviceName: appointment.service?.name || 'Serviço',
+        recipientName: userData.name || 'Cliente',
+        recipientEmail: userData.email || user.email || '',
+        petName: pet.name || 'Pet',
+        serviceName: service.name || 'Serviço',
         scheduledDate: appointment.scheduled_date,
         scheduledTime: appointment.scheduled_time,
         appointmentId: appointment.id
       }
 
       const adminEmailData = {
-        clientName: appointment.user?.name || 'Cliente',
-        clientEmail: appointment.user?.email || '',
-        clientPhone: appointment.user?.phone || null,
-        petName: appointment.pet?.name || 'Pet',
-        serviceName: appointment.service?.name || 'Serviço',
+        clientName: userData.name || 'Cliente',
+        clientEmail: userData.email || '',
+        clientPhone: userData.phone || null,
+        petName: pet.name || 'Pet',
+        serviceName: service.name || 'Serviço',
         scheduledDate: appointment.scheduled_date,
         scheduledTime: appointment.scheduled_time,
         appointmentId: appointment.id
@@ -85,9 +97,14 @@ export async function POST(request: NextRequest) {
       switch (type) {
         case 'requested':
           // Email to client when appointment is created
+          console.log('Sending appointment requested email to:', clientEmailData.recipientEmail)
           result = await sendAppointmentRequested(clientEmailData)
+          console.log('Client email result:', result)
+
           // Also notify admin
-          await sendNewAppointmentToAdmin(adminEmailData)
+          console.log('Sending notification to admin:', ADMIN_EMAIL)
+          const adminResult = await sendNewAppointmentToAdmin(adminEmailData)
+          console.log('Admin email result:', adminResult)
           break
 
         case 'confirmation':

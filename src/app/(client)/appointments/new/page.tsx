@@ -546,15 +546,27 @@ export default function NewAppointmentPage() {
 
       // Enviar notificação por email sobre os novos agendamentos
       if (createdAppointments && createdAppointments.length > 0) {
+        console.log('Sending email notifications for appointments:', createdAppointments.map((a: any) => a.id));
         for (const apt of createdAppointments as any[]) {
-          fetch('/api/email/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'requested',
-              appointmentId: apt.id
-            })
-          }).catch(err => console.error('Error sending email notification:', err));
+          try {
+            const response = await fetch('/api/email/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'requested',
+                appointmentId: apt.id
+              })
+            });
+
+            const result = await response.json();
+            console.log('Email sent for appointment:', apt.id, result);
+
+            if (!response.ok) {
+              console.error('Email notification failed:', result);
+            }
+          } catch (err) {
+            console.error('Error sending email notification for appointment', apt.id, ':', err);
+          }
         }
       }
 
