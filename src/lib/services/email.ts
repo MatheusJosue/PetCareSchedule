@@ -21,6 +21,14 @@ const courier = new Courier({ apiKey: process.env.COURIER_API_KEY })
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'matheusjxcerqueira@gmail.com'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
+// Log configuration
+console.log('📧 Email service initialized:', {
+  hasApiKey: !!process.env.COURIER_API_KEY,
+  apiKeyPrefix: process.env.COURIER_API_KEY?.substring(0, 10),
+  adminEmail: ADMIN_EMAIL,
+  appUrl: APP_URL
+})
+
 // ID do template no Courier - você precisa criar estes templates no dashboard do Courier
 const TEMPLATE_IDS = {
   welcome: process.env.COURIER_TEMPLATE_WELCOME || '',
@@ -79,14 +87,21 @@ export async function sendAppointmentRequested(
   data: Omit<AppointmentRequestedData, 'appUrl'>
 ): Promise<SendEmailResult> {
   try {
+    console.log('📧 Sending appointment requested email to:', data.recipientEmail)
+    console.log('📧 Template ID:', TEMPLATE_IDS.appointmentRequested || 'none (using direct email)')
+
     if (!TEMPLATE_IDS.appointmentRequested) {
-      return await sendEmailDirect({
+      console.log('📧 Using direct email (no template)')
+      const result = await sendEmailDirect({
         to: data.recipientEmail,
         subject: `Agendamento Solicitado - ${data.petName}`,
         html: appointmentRequestedEmail({ ...data, appUrl: APP_URL })
       })
+      console.log('📧 Direct email result:', result)
+      return result
     }
 
+    console.log('📧 Using Courier template:', TEMPLATE_IDS.appointmentRequested)
     const { requestId } = await courier.send.message({
       message: {
         to: { email: data.recipientEmail },
@@ -102,9 +117,10 @@ export async function sendAppointmentRequested(
       }
     })
 
+    console.log('📧 Courier message sent successfully, requestId:', requestId)
     return { success: true, messageId: requestId }
   } catch (err) {
-    console.error('Exception sending appointment requested email:', err)
+    console.error('❌ Exception sending appointment requested email:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }

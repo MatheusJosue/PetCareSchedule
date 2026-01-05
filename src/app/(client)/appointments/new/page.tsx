@@ -554,7 +554,8 @@ export default function NewAppointmentPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 type: 'requested',
-                appointmentId: apt.id
+                appointmentId: apt.id,
+                email: user.email
               })
             });
 
