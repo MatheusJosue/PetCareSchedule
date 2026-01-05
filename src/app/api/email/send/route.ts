@@ -9,6 +9,22 @@ import {
   sendAppointmentCancelledToAdmin
 } from '@/lib/services/email'
 
+// Types for query results
+type Appointment = {
+  id: string
+  user_id: string
+  pet_id: string
+  service_id: string
+  scheduled_date: string
+  scheduled_time: string
+}
+
+type Pet = { id: string; name: string }
+type Service = { id: string; name: string }
+type UserData = { id: string; name: string | null; email: string; phone: string | null }
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'matheusjxcerqueira@gmail.com'
+
 export async function POST(request: NextRequest) {
   try {
     console.log('📧 Email API called')
@@ -50,7 +66,7 @@ export async function POST(request: NextRequest) {
         .from('appointments')
         .select('*')
         .eq('id', appointmentId)
-        .single()
+        .single() as { data: Appointment | null; error: any }
 
       if (appointmentError || !appointment) {
         console.error('Appointment not found:', appointmentError)
@@ -60,11 +76,9 @@ export async function POST(request: NextRequest) {
       console.log('Appointment found:', appointment.id)
 
       // Get related data separately
-      const [{ data: pet }, { data: service }, { data: userData }] = await Promise.all([
-        supabase.from('pets').select('id, name').eq('id', appointment.pet_id).single(),
-        supabase.from('services').select('id, name').eq('id', appointment.service_id).single(),
-        supabase.from('users').select('id, name, email, phone').eq('id', appointment.user_id).single()
-      ])
+      const { data: pet } = await supabase.from('pets').select('id, name').eq('id', appointment.pet_id).single() as unknown as { data: Pet | null; error: any }
+      const { data: service } = await supabase.from('services').select('id, name').eq('id', appointment.service_id).single() as unknown as { data: Service | null; error: any }
+      const { data: userData } = await supabase.from('users').select('id, name, email, phone').eq('id', appointment.user_id).single() as unknown as { data: UserData | null; error: any }
 
       console.log('Related data:', { pet, service, userData })
 
