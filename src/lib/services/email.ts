@@ -335,7 +335,9 @@ export async function sendAppointmentCancelledToAdmin(
  */
 async function sendEmailDirect({ to, subject, html }: { to: string; subject: string; html: string }): Promise<SendEmailResult> {
   try {
-    const { requestId } = await courier.send.message({
+    console.log('📧 sendEmailDirect called with:', { to, subject })
+
+    const messagePayload = {
       message: {
         to: { email: to },
         content: {
@@ -343,11 +345,26 @@ async function sendEmailDirect({ to, subject, html }: { to: string; subject: str
           body: html
         }
       }
-    })
+    }
 
+    console.log('📧 Sending to Courier with payload:', JSON.stringify(messagePayload, null, 2))
+
+    const response = await courier.send.message(messagePayload)
+
+    console.log('📧 Courier response:', response)
+
+    const { requestId } = response
+
+    if (!requestId) {
+      console.error('📧 No requestId in response!')
+      return { success: false, error: 'No requestId returned from Courier' }
+    }
+
+    console.log('✅ Email sent successfully, requestId:', requestId)
     return { success: true, messageId: requestId }
   } catch (error) {
-    console.error('Error sending email directly:', error)
+    console.error('❌ Error sending email directly:', error)
+    console.error('❌ Error details:', JSON.stringify(error, null, 2))
     return { success: false, error: error instanceof Error ? error.message : 'Failed to send email' }
   }
 }
