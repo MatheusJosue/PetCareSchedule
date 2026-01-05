@@ -23,6 +23,8 @@ import {
   Plus,
   AlertCircle,
   MapPin,
+  CreditCard,
+  Ban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,34 +45,30 @@ interface Service {
   base_price: number;
 }
 
-// Generate available dates (next 14 days)
-const generateAvailableDates = () => {
-  const dates = [];
-  const today = new Date();
-  for (let i = 1; i <= 14; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    // Skip Sundays
-    if (date.getDay() !== 0) {
-      dates.push(date.toISOString().split("T")[0]);
-    }
-  }
-  return dates;
-};
+interface DaySchedule {
+  enabled: boolean;
+  start: string;
+  end: string;
+}
 
-// Generate time slots
-const timeSlots = [
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-];
+interface WeekSchedule {
+  [key: string]: DaySchedule;
+}
 
-const availableDates = generateAvailableDates();
+interface UserSubscription {
+  id: string;
+  sessions_remaining: number;
+  sessions_used: number;
+  payment_status: string;
+  payment_due_amount: number;
+  status: string;
+  plan: {
+    id: string;
+    name: string;
+    sessions_per_period: number;
+    price: number;
+  } | null;
+}
 
 export default function NewAppointmentPage() {
   const router = useRouter();
@@ -95,8 +93,23 @@ export default function NewAppointmentPage() {
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
+  // Default schedule - all days enabled 08:00-21:00 until settings load
+  const defaultSchedule: WeekSchedule = {
+    "0": { enabled: true, start: "08:00", end: "21:00" },
+    "1": { enabled: true, start: "08:00", end: "21:00" },
+    "2": { enabled: true, start: "08:00", end: "21:00" },
+    "3": { enabled: true, start: "08:00", end: "21:00" },
+    "4": { enabled: true, start: "08:00", end: "21:00" },
+    "5": { enabled: true, start: "08:00", end: "21:00" },
+    "6": { enabled: true, start: "08:00", end: "21:00" },
+  };
+  const [schedule, setSchedule] = useState<WeekSchedule>(defaultSchedule);
+  const [slotDuration, setSlotDuration] = useState(60);
+  const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+  const [canBook, setCanBook] = useState(true);
+  const [blockReason, setBlockReason] = useState<string | null>(null);
 
-  // Buscar pets e serviços
+  // Buscar pets, serviços e configurações
   useEffect(() => {
     async function fetchData() {
       if (authLoading) return;
@@ -125,6 +138,68 @@ export default function NewAppointmentPage() {
 
         if (servicesError) throw servicesError;
         setServices((servicesData || []) as Service[]);
+
+        // Buscar configurações de horário
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('settings')
+          .select('key, value');
+
+        if (!settingsError && settingsData) {
+          const settingsMap: Record<string, unknown> = {};
+          settingsData.forEach((s: { key: string; value: unknown }) => {
+            settingsMap[s.key] = s.value;
+          });
+
+          // Parse business hours - merge with defaults to ensure all days exist
+          const businessHours = settingsMap.business_hours as { schedule?: WeekSchedule } | undefined;
+          if (businessHours?.schedule) {
+            // Merge loaded schedule with defaults (loaded values take priority)
+            setSchedule(prev => ({
+              ...prev,
+              ...businessHours.schedule
+            }));
+          }
+
+          // Parse slot duration
+          if (settingsMap.slot_duration) {
+            setSlotDuration(Number(settingsMap.slot_duration));
+          }
+        }
+
+        // Buscar assinatura ativa do usuário
+        const { data: subscriptionData, error: subscriptionError } = await supabase
+          .from('subscriptions')
+          .select(`
+            id,
+            sessions_remaining,
+            sessions_used,
+            payment_status,
+            payment_due_amount,
+            status,
+            plan:plans(id, name, sessions_per_period, price)
+          `)
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!subscriptionError && subscriptionData) {
+          const sub = subscriptionData as unknown as UserSubscription;
+          setSubscription(sub);
+
+          // Verificar se pode agendar
+          if (sub.payment_status === 'pending' || sub.payment_status === 'overdue') {
+            if (sub.payment_due_amount > 0) {
+              setCanBook(false);
+              const amount = new Intl.NumberFormat("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              }).format(sub.payment_due_amount);
+              setBlockReason(`Você possui um pagamento pendente de ${amount}. Entre em contato para regularizar.`);
+            }
+          }
+        }
       } catch (error) {
         console.error('Error fetching data:', error);
         addToast("Erro ao carregar dados", "error");
@@ -135,6 +210,68 @@ export default function NewAppointmentPage() {
 
     fetchData();
   }, [user, authLoading]);
+
+  // Generate available dates for current month and next month
+  const getAvailableDates = () => {
+    const dates: string[] = [];
+    const today = new Date();
+
+    // Calculate end of next month
+    const endDate = new Date(today.getFullYear(), today.getMonth() + 2, 0); // Last day of next month
+
+    // Start from tomorrow
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() + 1);
+
+    // Iterate through all days from tomorrow until end of next month
+    const currentDate = new Date(startDate);
+    while (currentDate <= endDate) {
+      const dayOfWeek = currentDate.getDay().toString();
+
+      // Check if this day is enabled in the schedule
+      const daySchedule = schedule[dayOfWeek];
+      if (daySchedule && daySchedule.enabled) {
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        dates.push(`${year}-${month}-${day}`);
+      }
+
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return dates;
+  };
+
+  // Generate time slots for a specific date based on schedule
+  const getTimeSlotsForDate = (dateStr: string) => {
+    const date = new Date(dateStr + 'T12:00:00'); // Use noon to avoid timezone issues
+    const dayOfWeek = date.getDay().toString();
+    const daySchedule = schedule[dayOfWeek];
+
+    if (!daySchedule || !daySchedule.enabled) {
+      return [];
+    }
+
+    const slots: string[] = [];
+    const [startHour, startMin] = daySchedule.start.split(':').map(Number);
+    const [endHour, endMin] = daySchedule.end.split(':').map(Number);
+
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+
+    for (let minutes = startMinutes; minutes < endMinutes; minutes += slotDuration) {
+      const hour = Math.floor(minutes / 60);
+      const min = minutes % 60;
+      slots.push(`${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`);
+    }
+
+    return slots;
+  };
+
+  const availableDates = getAvailableDates();
+  const availableTimeSlots = selectedDate ? getTimeSlotsForDate(selectedDate) : [];
 
   // Ícone do serviço baseado no nome
   const getServiceIcon = (name: string) => {
@@ -300,11 +437,26 @@ export default function NewAppointmentPage() {
         }
       }
 
-      const { error } = await supabase
+      const { data: createdAppointments, error } = await supabase
         .from('appointments')
-        .insert(appointments as never[]);
+        .insert(appointments as never[])
+        .select('id');
 
       if (error) throw error;
+
+      // Enviar notificação para o admin sobre os novos agendamentos
+      if (createdAppointments && createdAppointments.length > 0) {
+        for (const apt of createdAppointments) {
+          fetch('/api/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'new_appointment_admin',
+              appointmentId: apt.id
+            })
+          }).catch(err => console.error('Error sending admin notification:', err));
+        }
+      }
 
       const totalAppointments = selectedPets.length * selectedServices.length;
       const petNames = selectedPets.map(p => p.name).join(', ');
@@ -402,6 +554,92 @@ export default function NewAppointmentPage() {
     );
   }
 
+  // Bloquear acesso se tiver pagamento pendente
+  if (!authLoading && !isFetching && !canBook && blockReason) {
+    return (
+      <div className="w-full" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {/* Header */}
+        <div className="flex items-center" style={{ gap: '16px' }}>
+          <button
+            onClick={() => router.back()}
+            className="h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 border"
+            style={{
+              background: 'var(--bg-secondary)',
+              borderColor: 'var(--border-primary)',
+              color: 'var(--text-muted)'
+            }}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-[1.5rem] font-bold" style={{ color: 'var(--text-primary)' }}>
+              Novo Agendamento
+            </h1>
+          </div>
+        </div>
+
+        {/* Payment Pending Message */}
+        <div
+          className="rounded-2xl border text-center"
+          style={{
+            padding: '48px 24px',
+            background: 'var(--bg-secondary)',
+            borderColor: 'var(--accent-red)',
+            boxShadow: 'var(--shadow-md)'
+          }}
+        >
+          <div
+            className="h-16 w-16 rounded-full flex items-center justify-center mx-auto"
+            style={{ marginBottom: '20px', background: 'var(--accent-red-bg)' }}
+          >
+            <Ban className="h-8 w-8" style={{ color: 'var(--accent-red)' }} />
+          </div>
+          <h2 className="text-xl font-bold" style={{ marginBottom: '8px', color: 'var(--text-primary)' }}>
+            Pagamento Pendente
+          </h2>
+          <p style={{ marginBottom: '8px', color: 'var(--text-muted)', maxWidth: '400px', marginLeft: 'auto', marginRight: 'auto' }}>
+            {blockReason}
+          </p>
+          {subscription && (
+            <div
+              className="rounded-xl"
+              style={{
+                padding: '16px',
+                marginTop: '16px',
+                marginBottom: '24px',
+                background: 'var(--bg-tertiary)',
+                maxWidth: '300px',
+                marginLeft: 'auto',
+                marginRight: 'auto',
+              }}
+            >
+              <p className="text-sm" style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Plano: {subscription.plan?.name}
+              </p>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                Sessões restantes: {subscription.sessions_remaining} / {subscription.plan?.sessions_per_period}
+              </p>
+            </div>
+          )}
+          <div className="flex items-center justify-center" style={{ gap: '12px' }}>
+            <Link href="/">
+              <Button variant="outline">
+                <ArrowLeft className="h-4 w-4" />
+                Voltar
+              </Button>
+            </Link>
+            <Link href="/appointments">
+              <Button>
+                <Calendar className="h-4 w-4" />
+                Ver Agendamentos
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Header */}
@@ -424,6 +662,42 @@ export default function NewAppointmentPage() {
           <p style={{ color: 'var(--text-muted)' }}>Passo {currentStep} de 4</p>
         </div>
       </div>
+
+      {/* Subscription Info Banner */}
+      {subscription && (
+        <div
+          className="rounded-xl flex items-center justify-between"
+          style={{
+            padding: '12px 16px',
+            background: subscription.sessions_remaining > 0 ? 'var(--accent-green-bg)' : 'var(--accent-yellow-bg)',
+            border: `1px solid ${subscription.sessions_remaining > 0 ? 'var(--accent-green)' : 'var(--accent-yellow)'}`,
+          }}
+        >
+          <div className="flex items-center" style={{ gap: '12px' }}>
+            <CreditCard className="h-5 w-5" style={{ color: subscription.sessions_remaining > 0 ? 'var(--accent-green)' : 'var(--accent-yellow)' }} />
+            <div>
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                {subscription.plan?.name}
+              </p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {subscription.sessions_remaining > 0
+                  ? `${subscription.sessions_remaining} sessões restantes`
+                  : 'Sessões esgotadas - será cobrado valor adicional'}
+              </p>
+            </div>
+          </div>
+          <div
+            className="rounded-lg text-sm font-semibold"
+            style={{
+              padding: '4px 12px',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            {subscription.sessions_remaining} / {subscription.plan?.sessions_per_period}
+          </div>
+        </div>
+      )}
 
       {/* Progress Steps */}
       <div className="flex items-center justify-center">
@@ -742,32 +1016,50 @@ export default function NewAppointmentPage() {
                 <p className="text-sm font-medium" style={{ marginBottom: '12px', color: 'var(--text-secondary)' }}>
                   Selecione a data
                 </p>
-                <div className="flex overflow-x-auto pb-2" style={{ gap: '8px' }}>
-                  {availableDates.map((date) => (
-                    <button
-                      key={date}
-                      onClick={() => setSelectedDate(date)}
-                      className="flex flex-col items-center rounded-xl border-2 min-w-[80px] transition-all"
-                      style={{
-                        padding: '12px 16px',
-                        background: selectedDate === date ? 'var(--accent-purple-bg)' : 'var(--bg-tertiary)',
-                        borderColor: selectedDate === date ? 'var(--accent-purple)' : 'var(--border-primary)'
-                      }}
-                    >
-                      <span className="text-xs uppercase" style={{ color: 'var(--text-muted)' }}>
-                        {formatDate(date).split(",")[0]}
-                      </span>
-                      <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-                        {new Date(date).getDate()}
-                      </span>
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {new Date(date).toLocaleDateString("pt-BR", {
-                          month: "short",
-                        })}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                {availableDates.length === 0 ? (
+                  <div
+                    className="rounded-xl text-center"
+                    style={{
+                      padding: '24px',
+                      background: 'var(--bg-tertiary)',
+                      color: 'var(--text-muted)'
+                    }}
+                  >
+                    {isFetching ? 'Carregando horários...' : 'Nenhuma data disponível no momento'}
+                  </div>
+                ) : (
+                  <div className="flex overflow-x-auto pb-2" style={{ gap: '8px' }}>
+                    {availableDates.map((dateStr) => {
+                      const dateParts = dateStr.split('-');
+                      const dateObj = new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]));
+                      return (
+                        <button
+                          key={dateStr}
+                          onClick={() => {
+                            setSelectedDate(dateStr);
+                            setSelectedTime(null); // Reset time when date changes
+                          }}
+                          className="flex flex-col items-center rounded-xl border-2 min-w-[80px] transition-all"
+                          style={{
+                            padding: '12px 16px',
+                            background: selectedDate === dateStr ? 'var(--accent-purple-bg)' : 'var(--bg-tertiary)',
+                            borderColor: selectedDate === dateStr ? 'var(--accent-purple)' : 'var(--border-primary)'
+                          }}
+                        >
+                          <span className="text-xs uppercase" style={{ color: 'var(--text-muted)' }}>
+                            {dateObj.toLocaleDateString("pt-BR", { weekday: "short" }).replace('.', '')}
+                          </span>
+                          <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                            {dateObj.getDate()}
+                          </span>
+                          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {dateObj.toLocaleDateString("pt-BR", { month: "short" })}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Time Selection */}
@@ -776,23 +1068,36 @@ export default function NewAppointmentPage() {
                   <p className="text-sm font-medium" style={{ marginBottom: '12px', color: 'var(--text-secondary)' }}>
                     Selecione o horário
                   </p>
-                  <div className="grid grid-cols-4" style={{ gap: '8px' }}>
-                    {timeSlots.map((time) => (
-                      <button
-                        key={time}
-                        onClick={() => setSelectedTime(time)}
-                        className="rounded-xl border-2 font-medium transition-all"
-                        style={{
-                          padding: '12px',
-                          background: selectedTime === time ? 'var(--accent-purple-bg)' : 'var(--bg-tertiary)',
-                          borderColor: selectedTime === time ? 'var(--accent-purple)' : 'var(--border-primary)',
-                          color: selectedTime === time ? 'var(--accent-purple)' : 'var(--text-secondary)'
-                        }}
-                      >
-                        {time}
-                      </button>
-                    ))}
-                  </div>
+                  {availableTimeSlots.length === 0 ? (
+                    <div
+                      className="rounded-xl text-center"
+                      style={{
+                        padding: '24px',
+                        background: 'var(--bg-tertiary)',
+                        color: 'var(--text-muted)'
+                      }}
+                    >
+                      Nenhum horário disponível para esta data
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4" style={{ gap: '8px' }}>
+                      {availableTimeSlots.map((time) => (
+                        <button
+                          key={time}
+                          onClick={() => setSelectedTime(time)}
+                          className="rounded-xl border-2 font-medium transition-all"
+                          style={{
+                            padding: '12px',
+                            background: selectedTime === time ? 'var(--accent-purple-bg)' : 'var(--bg-tertiary)',
+                            borderColor: selectedTime === time ? 'var(--accent-purple)' : 'var(--border-primary)',
+                            color: selectedTime === time ? 'var(--accent-purple)' : 'var(--text-secondary)'
+                          }}
+                        >
+                          {time}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

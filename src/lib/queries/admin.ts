@@ -123,6 +123,7 @@ export async function getDashboardStats() {
 
 export async function getUpcomingAppointments(limit: number = 10): Promise<UpcomingAppointment[]> {
   const supabase = await createClient()
+  const today = new Date().toISOString().split('T')[0]
 
   // First, get pending appointments that need attention (regardless of date)
   const { data: pendingData, error: pendingError } = await supabase
@@ -144,8 +145,7 @@ export async function getUpcomingAppointments(limit: number = 10): Promise<Upcom
 
   if (pendingError) throw pendingError
 
-  // Then get confirmed appointments for today and future
-  const today = new Date().toISOString().split('T')[0]
+  // Get confirmed appointments for today and future
   const { data: confirmedData, error: confirmedError } = await supabase
     .from('appointments')
     .select(`
@@ -166,9 +166,30 @@ export async function getUpcomingAppointments(limit: number = 10): Promise<Upcom
 
   if (confirmedError) throw confirmedError
 
-  // Combine and sort, prioritizing pending
+  // Get cancelled appointments for today and future (recent cancellations)
+  const { data: cancelledData, error: cancelledError } = await supabase
+    .from('appointments')
+    .select(`
+      id,
+      scheduled_date,
+      scheduled_time,
+      status,
+      price,
+      user:users!appointments_user_id_fkey(id, name, phone),
+      pet:pets(id, name),
+      service:services(id, name, base_price)
+    `)
+    .eq('status', 'cancelled')
+    .gte('scheduled_date', today)
+    .order('scheduled_date', { ascending: true })
+    .order('scheduled_time', { ascending: true })
+    .limit(limit)
+
+  if (cancelledError) throw cancelledError
+
+  // Combine and sort, prioritizing pending, then confirmed, then cancelled
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allAppointments = [...(pendingData || []), ...(confirmedData || [])] as any[]
+  const allAppointments = [...(pendingData || []), ...(confirmedData || []), ...(cancelledData || [])] as any[]
 
   // Remove duplicates (if any) and sort by date/time
   const uniqueAppointments = allAppointments
@@ -177,6 +198,9 @@ export async function getUpcomingAppointments(limit: number = 10): Promise<Upcom
       // Pending always comes first
       if (a.status === 'pending' && b.status !== 'pending') return -1
       if (b.status === 'pending' && a.status !== 'pending') return 1
+      // Cancelled comes last
+      if (a.status === 'cancelled' && b.status !== 'cancelled') return 1
+      if (b.status === 'cancelled' && a.status !== 'cancelled') return -1
       // Then sort by date and time
       const dateCompare = a.scheduled_date.localeCompare(b.scheduled_date)
       if (dateCompare !== 0) return dateCompare

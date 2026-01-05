@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Modal, ModalActions } from "@/components/ui/modal"
@@ -9,6 +9,9 @@ import {
   getCalendarAppointmentsClient,
   updateAppointmentStatusClient,
   blockSlotClient,
+  unblockSlotClient,
+  getBlockedSlotsClient,
+  getSettingsClient,
 } from "@/lib/queries/admin-client"
 import {
   ChevronLeft,
@@ -36,13 +39,46 @@ interface CalendarAppointment {
 interface TimeSlot {
   time: string
   available: boolean
+  blocked: boolean
   appointment?: CalendarAppointment
+  appointments: CalendarAppointment[]
 }
+
+interface DaySchedule {
+  enabled: boolean
+  start: string
+  end: string
+}
+
+interface WeekSchedule {
+  [key: string]: DaySchedule
+}
+
+const defaultSchedule: WeekSchedule = {
+  "0": { enabled: true, start: "08:00", end: "21:00" },
+  "1": { enabled: true, start: "08:00", end: "21:00" },
+  "2": { enabled: true, start: "18:00", end: "21:00" },
+  "3": { enabled: true, start: "18:00", end: "21:00" },
+  "4": { enabled: true, start: "18:00", end: "21:00" },
+  "5": { enabled: true, start: "18:00", end: "21:00" },
+  "6": { enabled: true, start: "18:00", end: "21:00" },
+}
+
+const CALENDAR_VIEW_KEY = 'petcare-calendar-view'
 
 export default function AdminCalendarPage() {
   const { addToast } = useToast()
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [viewMode, setViewMode] = useState<"week" | "day">("week")
+  const [viewMode, setViewMode] = useState<"week" | "day">(() => {
+    // Load from localStorage on initial render (client-side only)
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(CALENDAR_VIEW_KEY)
+      if (saved === 'day' || saved === 'week') {
+        return saved
+      }
+    }
+    return "week"
+  })
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false)
   const [selectedDateForBlock, setSelectedDateForBlock] = useState<Date | null>(null)
@@ -51,11 +87,123 @@ export default function AdminCalendarPage() {
   const [isBlocking, setIsBlocking] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([])
+  const [blockedSlots, setBlockedSlots] = useState<{ date: string; start_time: string; id: string }[]>([])
+  const [schedule, setSchedule] = useState<WeekSchedule>(defaultSchedule)
+  const [slotDuration, setSlotDuration] = useState(60)
 
-  const timeSlots = [
-    "08:00", "09:00", "10:00", "11:00", "12:00",
-    "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"
-  ]
+  const formatDateKey = (date: Date): string => {
+    // Use local date format YYYY-MM-DD to match database
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // Generate time slots based on schedule for current day (memoized for day view)
+  const dayViewTimeSlots = useMemo((): string[] => {
+    const dayOfWeek = currentDate.getDay().toString()
+    const daySchedule = schedule[dayOfWeek]
+    const dateKey = formatDateKey(currentDate)
+    const slotsSet = new Set<string>()
+
+    // Add slots from schedule
+    if (daySchedule && daySchedule.enabled) {
+      const [startHour, startMin] = daySchedule.start.split(':').map(Number)
+      const [endHour, endMin] = daySchedule.end.split(':').map(Number)
+
+      const startMinutes = startHour * 60 + startMin
+      const endMinutes = endHour * 60 + endMin
+
+      for (let minutes = startMinutes; minutes < endMinutes; minutes += slotDuration) {
+        const hour = Math.floor(minutes / 60)
+        const min = minutes % 60
+        slotsSet.add(`${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`)
+      }
+    }
+
+    // Also include times from existing appointments for this day
+    appointments.forEach(apt => {
+      if (apt.scheduled_date === dateKey && apt.scheduled_time) {
+        const time = apt.scheduled_time.slice(0, 5)
+        slotsSet.add(time)
+      }
+    })
+
+    return Array.from(slotsSet).sort()
+  }, [currentDate, schedule, slotDuration, appointments])
+
+  // Get all unique time slots for the week view (memoized to avoid recalculation)
+  const allTimeSlots = useMemo((): string[] => {
+    const allSlots = new Set<string>()
+
+    // Get slots from schedule for all days of the week
+    for (let i = 0; i < 7; i++) {
+      const daySchedule = schedule[i.toString()]
+      if (daySchedule && daySchedule.enabled) {
+        const [startHour, startMin] = daySchedule.start.split(':').map(Number)
+        const [endHour, endMin] = daySchedule.end.split(':').map(Number)
+
+        const startMinutes = startHour * 60 + startMin
+        const endMinutes = endHour * 60 + endMin
+
+        for (let minutes = startMinutes; minutes < endMinutes; minutes += slotDuration) {
+          const hour = Math.floor(minutes / 60)
+          const min = minutes % 60
+          allSlots.add(`${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`)
+        }
+      }
+    }
+
+    // Also include times from existing appointments (even if outside schedule)
+    appointments.forEach(apt => {
+      if (apt.scheduled_time) {
+        const time = apt.scheduled_time.slice(0, 5)
+        allSlots.add(time)
+      }
+    })
+
+    return Array.from(allSlots).sort()
+  }, [schedule, slotDuration, appointments])
+
+  // Check if a day is enabled
+  const isDayEnabled = useCallback((date: Date): boolean => {
+    const dayOfWeek = date.getDay().toString()
+    return schedule[dayOfWeek]?.enabled ?? false
+  }, [schedule])
+
+  // Check if a time slot is available for a specific day
+  const isSlotInSchedule = useCallback((date: Date, time: string): boolean => {
+    const dayOfWeek = date.getDay().toString()
+    const daySchedule = schedule[dayOfWeek]
+
+    if (!daySchedule || !daySchedule.enabled) {
+      return false
+    }
+
+    const [slotHour, slotMin] = time.split(':').map(Number)
+    const [startHour, startMin] = daySchedule.start.split(':').map(Number)
+    const [endHour, endMin] = daySchedule.end.split(':').map(Number)
+
+    const slotMinutes = slotHour * 60 + slotMin
+    const startMinutes = startHour * 60 + startMin
+    const endMinutes = endHour * 60 + endMin
+
+    return slotMinutes >= startMinutes && slotMinutes < endMinutes
+  }, [schedule])
+
+  // Check if a slot is blocked and get its ID
+  const getBlockedSlotId = useCallback((date: Date, time: string): string | null => {
+    const dateKey = formatDateKey(date)
+    const blocked = blockedSlots.find(slot =>
+      slot.date === dateKey && slot.start_time.slice(0, 5) === time
+    )
+    return blocked?.id || null
+  }, [blockedSlots])
+
+  // Check if a slot is blocked
+  const isSlotBlocked = useCallback((date: Date, time: string): boolean => {
+    return getBlockedSlotId(date, time) !== null
+  }, [getBlockedSlotId])
 
   const getWeekDays = (date: Date): Date[] => {
     const start = new Date(date)
@@ -72,15 +220,24 @@ export default function AdminCalendarPage() {
     return days
   }
 
-  const formatDateKey = (date: Date): string => {
-    // Use local date format YYYY-MM-DD to match database
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
-  }
-
   const weekDays = getWeekDays(currentDate)
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const settings = await getSettingsClient()
+      const businessHours = settings.business_hours as { schedule?: WeekSchedule } | undefined
+
+      if (businessHours?.schedule) {
+        setSchedule(businessHours.schedule)
+      }
+
+      if (settings.slot_duration) {
+        setSlotDuration(Number(settings.slot_duration))
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error)
+    }
+  }, [])
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -93,10 +250,12 @@ export default function AdminCalendarPage() {
         ? formatDateKey(days[6])
         : formatDateKey(currentDate)
 
-      console.log('Fetching appointments:', { startDate, endDate })
-      const data = await getCalendarAppointmentsClient(startDate, endDate)
-      console.log('Appointments loaded:', data)
-      setAppointments(data)
+      const [appointmentsData, blockedData] = await Promise.all([
+        getCalendarAppointmentsClient(startDate, endDate),
+        getBlockedSlotsClient(startDate, endDate)
+      ])
+      setAppointments(appointmentsData)
+      setBlockedSlots(blockedData)
     } catch (error) {
       console.error('Error fetching appointments:', error)
       addToast("Erro ao carregar agenda", "error")
@@ -104,6 +263,10 @@ export default function AdminCalendarPage() {
       setIsLoading(false)
     }
   }, [currentDate, viewMode, addToast])
+
+  useEffect(() => {
+    fetchSettings()
+  }, [fetchSettings])
 
   useEffect(() => {
     fetchAppointments()
@@ -128,7 +291,7 @@ export default function AdminCalendarPage() {
 
   const getSlotStatus = (date: Date, time: string): TimeSlot => {
     const dateKey = formatDateKey(date)
-    const appointment = appointments.find(apt => {
+    const slotAppointments = appointments.filter(apt => {
       // Compare date
       const dateMatch = apt.scheduled_date === dateKey
       // Compare time - handle different formats (HH:MM:SS or HH:MM)
@@ -137,10 +300,14 @@ export default function AdminCalendarPage() {
       return dateMatch && timeMatch
     })
 
+    const blocked = isSlotBlocked(date, time)
+
     return {
       time,
-      available: !appointment,
-      appointment,
+      available: slotAppointments.length === 0 && !blocked,
+      blocked,
+      appointment: slotAppointments[0], // Keep for backwards compatibility
+      appointments: slotAppointments,
     }
   }
 
@@ -246,6 +413,21 @@ export default function AdminCalendarPage() {
     }
   }
 
+  const handleUnblockSlot = async (slotId: string) => {
+    setIsBlocking(true)
+    try {
+      await unblockSlotClient(slotId)
+      addToast("Horário desbloqueado com sucesso!", "success")
+      // Refresh to update the view
+      fetchAppointments()
+    } catch (error) {
+      console.error('Error unblocking slot:', error)
+      addToast("Erro ao desbloquear horário", "error")
+    } finally {
+      setIsBlocking(false)
+    }
+  }
+
   // Loading skeleton
   if (isLoading && appointments.length === 0) {
     return (
@@ -313,14 +495,20 @@ export default function AdminCalendarPage() {
           <Button
             variant={viewMode === "day" ? "default" : "secondary"}
             size="sm"
-            onClick={() => setViewMode("day")}
+            onClick={() => {
+              setViewMode("day")
+              localStorage.setItem(CALENDAR_VIEW_KEY, "day")
+            }}
           >
             Dia
           </Button>
           <Button
             variant={viewMode === "week" ? "default" : "secondary"}
             size="sm"
-            onClick={() => setViewMode("week")}
+            onClick={() => {
+              setViewMode("week")
+              localStorage.setItem(CALENDAR_VIEW_KEY, "week")
+            }}
           >
             Semana
           </Button>
@@ -413,7 +601,7 @@ export default function AdminCalendarPage() {
               </div>
 
               {/* Time Slots */}
-              {timeSlots.map((time) => (
+              {allTimeSlots.map((time: string) => (
                 <div
                   key={time}
                   className="grid grid-cols-8 border-b"
@@ -431,79 +619,88 @@ export default function AdminCalendarPage() {
                     return (
                       <div
                         key={`${day.toISOString()}-${time}`}
-                        className="p-2 border-l"
+                        className="p-1 border-l flex flex-col"
                         style={{
                           minHeight: '80px',
+                          gap: '4px',
                           borderColor: 'var(--border-primary)',
                           background: isToday(day)
                             ? 'rgba(124, 58, 237, 0.03)'
                             : 'transparent'
                         }}
                       >
-                        {slot.appointment ? (
-                          <div
-                            className="h-full rounded-xl cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] border-l-4"
-                            onClick={() => setSelectedSlot(slot)}
-                            style={{
-                              padding: '8px 10px',
-                              background: slot.appointment.status === 'pending'
-                                ? 'var(--accent-yellow-bg)'
-                                : slot.appointment.status === 'confirmed'
-                                ? 'var(--accent-blue-bg)'
-                                : slot.appointment.status === 'completed'
-                                ? 'var(--accent-green-bg)'
-                                : 'var(--accent-red-bg)',
-                              borderLeftColor: slot.appointment.status === 'pending'
-                                ? 'var(--accent-yellow)'
-                                : slot.appointment.status === 'confirmed'
-                                ? 'var(--accent-blue)'
-                                : slot.appointment.status === 'completed'
-                                ? 'var(--accent-green)'
-                                : 'var(--accent-red)',
-                            }}
-                          >
-                            <div className="flex items-center gap-1 mb-1">
-                              <PawPrint
-                                className="h-3 w-3 flex-shrink-0"
-                                style={{
-                                  color: slot.appointment.status === 'pending'
-                                    ? 'var(--accent-yellow)'
-                                    : slot.appointment.status === 'confirmed'
-                                    ? 'var(--accent-blue)'
-                                    : slot.appointment.status === 'completed'
-                                    ? 'var(--accent-green)'
-                                    : 'var(--accent-red)'
+                        {slot.appointments.length > 0 ? (
+                          <>
+                            {slot.appointments.map((apt) => (
+                              <div
+                                key={apt.id}
+                                className="rounded-lg cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] border-l-[3px]"
+                                onClick={() => {
+                                  setSelectedSlot({ ...slot, appointment: apt })
                                 }}
-                              />
-                              <p
-                                className="text-xs font-bold truncate"
-                                style={{ color: 'var(--text-primary)' }}
+                                style={{
+                                  padding: '4px 6px',
+                                  background: apt.status === 'pending'
+                                    ? 'var(--accent-yellow-bg)'
+                                    : apt.status === 'confirmed'
+                                    ? 'var(--accent-blue-bg)'
+                                    : apt.status === 'completed'
+                                    ? 'var(--accent-green-bg)'
+                                    : 'var(--accent-red-bg)',
+                                  borderLeftColor: apt.status === 'pending'
+                                    ? 'var(--accent-yellow)'
+                                    : apt.status === 'confirmed'
+                                    ? 'var(--accent-blue)'
+                                    : apt.status === 'completed'
+                                    ? 'var(--accent-green)'
+                                    : 'var(--accent-red)',
+                                }}
                               >
-                                {slot.appointment.pet?.name || 'Pet'}
-                              </p>
-                            </div>
-                            <p
-                              className="text-[10px] truncate"
-                              style={{ color: 'var(--text-muted)' }}
-                            >
-                              {slot.appointment.user?.name || 'Cliente'}
-                            </p>
-                            <div
-                              className="mt-1 px-1.5 py-0.5 rounded text-[9px] font-medium inline-block"
-                              style={{
-                                background: 'var(--bg-primary)',
-                                color: slot.appointment.status === 'pending'
-                                  ? 'var(--accent-yellow)'
-                                  : slot.appointment.status === 'confirmed'
-                                  ? 'var(--accent-blue)'
-                                  : slot.appointment.status === 'completed'
-                                  ? 'var(--accent-green)'
-                                  : 'var(--accent-red)'
-                              }}
-                            >
-                              {slot.appointment.service?.name || 'Serviço'}
-                            </div>
-                          </div>
+                                <div className="flex items-center gap-1">
+                                  <PawPrint
+                                    className="h-2.5 w-2.5 flex-shrink-0"
+                                    style={{
+                                      color: apt.status === 'pending'
+                                        ? 'var(--accent-yellow)'
+                                        : apt.status === 'confirmed'
+                                        ? 'var(--accent-blue)'
+                                        : apt.status === 'completed'
+                                        ? 'var(--accent-green)'
+                                        : 'var(--accent-red)'
+                                    }}
+                                  />
+                                  <p
+                                    className="text-[10px] font-semibold truncate"
+                                    style={{ color: 'var(--text-primary)' }}
+                                  >
+                                    {apt.pet?.name || 'Pet'}
+                                  </p>
+                                </div>
+                                <p
+                                  className="text-[9px] truncate"
+                                  style={{ color: 'var(--text-muted)' }}
+                                >
+                                  {apt.service?.name || 'Serviço'}
+                                </p>
+                              </div>
+                            ))}
+                          </>
+                        ) : slot.blocked ? (
+                          <button
+                            className="w-full h-full min-h-[60px] rounded-lg flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer hover:opacity-100"
+                            style={{
+                              background: 'var(--bg-tertiary)',
+                              opacity: 0.6
+                            }}
+                            onClick={() => {
+                              const slotId = getBlockedSlotId(day, time)
+                              if (slotId) handleUnblockSlot(slotId)
+                            }}
+                            disabled={isBlocking}
+                          >
+                            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Bloqueado</span>
+                            <span className="text-[9px] underline" style={{ color: 'var(--accent-purple)' }}>Desbloquear</span>
+                          </button>
                         ) : (
                           <button
                             className="w-full h-full min-h-[60px] rounded-lg border-2 border-dashed transition-colors flex items-center justify-center"
@@ -537,7 +734,7 @@ export default function AdminCalendarPage() {
           ) : (
             /* Day View */
             <div>
-              {timeSlots.map((time) => {
+              {dayViewTimeSlots.map((time: string) => {
                 const slot = getSlotStatus(currentDate, time)
 
                 return (
@@ -556,79 +753,100 @@ export default function AdminCalendarPage() {
                     >
                       {time}
                     </div>
-                    <div className="flex-1" style={{ padding: '12px' }}>
-                      {slot.appointment ? (
-                        <div
-                          className="rounded-2xl cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] border-l-4"
-                          onClick={() => setSelectedSlot(slot)}
-                          style={{
-                            padding: '16px',
-                            background: slot.appointment.status === 'pending'
-                              ? 'var(--accent-yellow-bg)'
-                              : slot.appointment.status === 'confirmed'
-                              ? 'var(--accent-blue-bg)'
-                              : slot.appointment.status === 'completed'
-                              ? 'var(--accent-green-bg)'
-                              : 'var(--accent-red-bg)',
-                            borderLeftColor: slot.appointment.status === 'pending'
-                              ? 'var(--accent-yellow)'
-                              : slot.appointment.status === 'confirmed'
-                              ? 'var(--accent-blue)'
-                              : slot.appointment.status === 'completed'
-                              ? 'var(--accent-green)'
-                              : 'var(--accent-red)',
-                          }}
-                        >
-                          <div className="flex items-start justify-between" style={{ marginBottom: '12px' }}>
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="h-10 w-10 rounded-xl flex items-center justify-center"
-                                style={{
-                                  background: slot.appointment.status === 'pending'
-                                    ? 'var(--accent-yellow)'
-                                    : slot.appointment.status === 'confirmed'
-                                    ? 'var(--accent-blue)'
-                                    : slot.appointment.status === 'completed'
-                                    ? 'var(--accent-green)'
-                                    : 'var(--accent-red)',
-                                }}
-                              >
-                                <PawPrint className="h-5 w-5 text-white" />
+                    <div className="flex-1 flex flex-col" style={{ padding: '12px', gap: '8px' }}>
+                      {slot.appointments.length > 0 ? (
+                        <>
+                          {slot.appointments.map((apt) => (
+                            <div
+                              key={apt.id}
+                              className="rounded-2xl cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] border-l-4"
+                              onClick={() => setSelectedSlot({ ...slot, appointment: apt })}
+                              style={{
+                                padding: '16px',
+                                background: apt.status === 'pending'
+                                  ? 'var(--accent-yellow-bg)'
+                                  : apt.status === 'confirmed'
+                                  ? 'var(--accent-blue-bg)'
+                                  : apt.status === 'completed'
+                                  ? 'var(--accent-green-bg)'
+                                  : 'var(--accent-red-bg)',
+                                borderLeftColor: apt.status === 'pending'
+                                  ? 'var(--accent-yellow)'
+                                  : apt.status === 'confirmed'
+                                  ? 'var(--accent-blue)'
+                                  : apt.status === 'completed'
+                                  ? 'var(--accent-green)'
+                                  : 'var(--accent-red)',
+                              }}
+                            >
+                              <div className="flex items-start justify-between" style={{ marginBottom: '12px' }}>
+                                <div className="flex items-center gap-3">
+                                  <div
+                                    className="h-10 w-10 rounded-xl flex items-center justify-center"
+                                    style={{
+                                      background: apt.status === 'pending'
+                                        ? 'var(--accent-yellow)'
+                                        : apt.status === 'confirmed'
+                                        ? 'var(--accent-blue)'
+                                        : apt.status === 'completed'
+                                        ? 'var(--accent-green)'
+                                        : 'var(--accent-red)',
+                                    }}
+                                  >
+                                    <PawPrint className="h-5 w-5 text-white" />
+                                  </div>
+                                  <div>
+                                    <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                                      {apt.pet?.name || 'Pet'}
+                                    </p>
+                                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                                      {apt.user?.name || 'Cliente'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <Badge variant={getStatusVariant(apt.status)}>
+                                  {getStatusLabel(apt.status)}
+                                </Badge>
                               </div>
-                              <div>
-                                <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
-                                  {slot.appointment.pet?.name || 'Pet'}
-                                </p>
-                                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                                  {slot.appointment.user?.name || 'Cliente'}
-                                </p>
+                              <div
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                                style={{ background: 'var(--bg-primary)' }}
+                              >
+                                <Clock
+                                  className="h-4 w-4"
+                                  style={{
+                                    color: apt.status === 'pending'
+                                      ? 'var(--accent-yellow)'
+                                      : apt.status === 'confirmed'
+                                      ? 'var(--accent-blue)'
+                                      : apt.status === 'completed'
+                                      ? 'var(--accent-green)'
+                                      : 'var(--accent-red)'
+                                  }}
+                                />
+                                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                  {apt.service?.name || 'Serviço'}
+                                </span>
                               </div>
                             </div>
-                            <Badge variant={getStatusVariant(slot.appointment.status)}>
-                              {getStatusLabel(slot.appointment.status)}
-                            </Badge>
-                          </div>
-                          <div
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                            style={{ background: 'var(--bg-primary)' }}
-                          >
-                            <Clock
-                              className="h-4 w-4"
-                              style={{
-                                color: slot.appointment.status === 'pending'
-                                  ? 'var(--accent-yellow)'
-                                  : slot.appointment.status === 'confirmed'
-                                  ? 'var(--accent-blue)'
-                                  : slot.appointment.status === 'completed'
-                                  ? 'var(--accent-green)'
-                                  : 'var(--accent-red)'
-                              }}
-                            />
-                            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                              {slot.appointment.service?.name || 'Serviço'}
-                            </span>
-                          </div>
-                        </div>
+                          ))}
+                        </>
+                      ) : slot.blocked ? (
+                        <button
+                          className="w-full h-full min-h-[80px] rounded-xl flex flex-col items-center justify-center gap-2 transition-colors cursor-pointer hover:opacity-100"
+                          style={{
+                            background: 'var(--bg-tertiary)',
+                            opacity: 0.6
+                          }}
+                          onClick={() => {
+                            const slotId = getBlockedSlotId(currentDate, time)
+                            if (slotId) handleUnblockSlot(slotId)
+                          }}
+                          disabled={isBlocking}
+                        >
+                          <span style={{ color: 'var(--text-muted)' }}>Horário bloqueado</span>
+                          <span className="text-sm underline" style={{ color: 'var(--accent-purple)' }}>Clique para desbloquear</span>
+                        </button>
                       ) : (
                         <button
                           className="w-full h-full min-h-[80px] rounded-xl border-2 border-dashed flex items-center justify-center transition-colors"

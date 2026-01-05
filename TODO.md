@@ -14,18 +14,22 @@
   - Agendamentos cancelados podem ser reativados como "pendente" ou "confirmado"
   - Botões de ação implementados nos cards de agendamentos cancelados
 
-- [ ] Agenda (Calendar) - Melhorias futuras
+- [x] Agenda (Calendar) - Melhorias
   - Carregar horários de funcionamento das configurações do banco
   - Gerar timeSlots dinamicamente baseado nas configurações (início, fim, duração)
   - Respeitar dias de funcionamento configurados
+  - Bloquear/desbloquear horários
+  - Salvar preferência de visualização (dia/semana) no localStorage
 
-## Emails (Prioridade Alta)
+## Emails (Concluído)
 
-- [ ] Validar rotina de emails
-  - Configurar serviço de email (Resend, SendGrid, etc.)
-  - Testar envio de confirmação de agendamento
-  - Testar envio de lembrete de agendamento
-  - Testar envio de cancelamento
+- [x] Validar rotina de emails
+  - Serviço configurado com Resend
+  - Templates HTML bonitos com design consistente (gradiente roxo)
+  - API de envio: POST /api/email/send
+  - API de teste: POST /api/email/test (apenas admin/dev)
+  - Cron para lembretes: GET /api/cron/send-reminders (9h diariamente)
+  - Templates: confirmação, lembrete, cancelamento
 
 ## Deploy (Concluído)
 

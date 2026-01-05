@@ -10,7 +10,9 @@
       "Bash(vercel --version:*)",
       "Bash(vercel:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(npx tsx:*)",
+      "Bash(del \"c:\\\\Users\\\\Mathe\\\\OneDrive\\\\Documentos\\\\Coding\\\\Pessoal\\\\petcareschedule\\\\pet-care-schedule\\\\test-email.ts\")"
     ]
   }
 }

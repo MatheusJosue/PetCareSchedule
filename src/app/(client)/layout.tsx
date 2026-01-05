@@ -1,11 +1,20 @@
+import { redirect } from "next/navigation"
+import { createClient } from "@/lib/supabase/server"
 import { Header } from "@/components/layout/header"
 import { MobileNav } from "@/components/layout/mobile-nav"
 
-export default function ClientLayout({
+export default async function ClientLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
   return (
     <div
       className="flex flex-col min-h-screen transition-colors duration-200"

@@ -214,6 +214,30 @@ export default function AdminAppointmentsPage() {
         setSelectedAppointment({ ...selectedAppointment, status: newStatus })
       }
 
+      // Enviar emails baseado no status
+      if (newStatus === 'confirmed') {
+        // Email de confirmação quando admin confirma
+        fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'confirmation',
+            appointmentId: id
+          })
+        }).catch(err => console.error('Error sending confirmation email:', err))
+      } else if (newStatus === 'cancelled') {
+        // Email de cancelamento quando admin cancela
+        fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'cancellation',
+            appointmentId: id,
+            cancelledBy: 'admin'
+          })
+        }).catch(err => console.error('Error sending cancellation email:', err))
+      }
+
       const messages = {
         confirmed: "Agendamento confirmado!",
         completed: "Agendamento concluído!",

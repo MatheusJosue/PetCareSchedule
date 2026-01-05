@@ -419,11 +419,224 @@ export async function updateSettingClient(key: string, value: unknown) {
 
   const { error } = await supabase
     .from('settings')
-    .upsert({
-      key,
-      value,
-      updated_at: new Date().toISOString(),
-    } as never)
+    .upsert(
+      {
+        key,
+        value,
+        updated_at: new Date().toISOString(),
+      } as never,
+      { onConflict: 'key' }
+    )
 
   if (error) throw error
+}
+
+// ============================================
+// SUBSCRIPTIONS
+// ============================================
+
+export interface SubscriptionWithDetails {
+  id: string
+  user_id: string
+  plan_id: string
+  start_date: string
+  end_date: string | null
+  next_billing_date: string | null
+  sessions_remaining: number
+  sessions_used: number
+  extra_sessions_used: number
+  status: string
+  payment_status: string
+  payment_due_amount: number
+  last_payment_date: string | null
+  created_at: string
+  updated_at: string
+  user: {
+    id: string
+    name: string | null
+    email: string
+    phone: string | null
+  } | null
+  plan: {
+    id: string
+    name: string
+    type: string
+    sessions_per_period: number
+    price: number
+  } | null
+}
+
+export async function getSubscriptionsClient(status?: string): Promise<SubscriptionWithDetails[]> {
+  const supabase = createClient()
+
+  let query = supabase
+    .from('subscriptions')
+    .select(`
+      *,
+      user:users!subscriptions_user_id_fkey(id, name, email, phone),
+      plan:plans!subscriptions_plan_id_fkey(id, name, type, sessions_per_period, price)
+    `)
+    .order('created_at', { ascending: false })
+
+  if (status) {
+    query = query.eq('status', status)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+  return (data || []) as unknown as SubscriptionWithDetails[]
+}
+
+export async function createSubscriptionClient(subscription: {
+  user_id: string
+  plan_id: string
+  sessions_remaining: number
+  start_date?: string
+  end_date?: string
+  next_billing_date?: string
+}) {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .insert({
+      user_id: subscription.user_id,
+      plan_id: subscription.plan_id,
+      start_date: subscription.start_date || new Date().toISOString().split('T')[0],
+      end_date: subscription.end_date || null,
+      next_billing_date: subscription.next_billing_date || null,
+      sessions_remaining: subscription.sessions_remaining,
+      sessions_used: 0,
+      extra_sessions_used: 0,
+      status: 'active',
+      payment_status: 'paid',
+      payment_due_amount: 0,
+    } as never)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function updateSubscriptionClient(
+  id: string,
+  updates: {
+    sessions_remaining?: number
+    status?: string
+    payment_status?: string
+    payment_due_amount?: number
+    next_billing_date?: string | null
+  }
+) {
+  const supabase = createClient()
+
+  const { error } = await supabase
+    .from('subscriptions')
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString(),
+    } as never)
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+export async function markSubscriptionPaidClient(
+  id: string,
+  renewSessions: boolean = false,
+  newSessionsCount?: number
+) {
+  const supabase = createClient()
+
+  const updateData: Record<string, unknown> = {
+    payment_status: 'paid',
+    payment_due_amount: 0,
+    last_payment_date: new Date().toISOString().split('T')[0],
+    extra_sessions_used: 0,
+    updated_at: new Date().toISOString(),
+  }
+
+  if (renewSessions && newSessionsCount !== undefined) {
+    updateData.sessions_remaining = newSessionsCount
+    updateData.sessions_used = 0
+  }
+
+  const { error } = await supabase
+    .from('subscriptions')
+    .update(updateData as never)
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+export async function useSubscriptionSessionClient(
+  subscriptionId: string,
+  extraCharge: number = 0
+) {
+  const supabase = createClient()
+
+  // First get current subscription
+  const { data, error: fetchError } = await supabase
+    .from('subscriptions')
+    .select('sessions_remaining, sessions_used, extra_sessions_used, payment_due_amount')
+    .eq('id', subscriptionId)
+    .single()
+
+  if (fetchError) throw fetchError
+
+  const subscription = data as {
+    sessions_remaining: number
+    sessions_used: number
+    extra_sessions_used: number
+    payment_due_amount: number
+  }
+
+  if (subscription.sessions_remaining > 0) {
+    // Use regular session
+    const { error } = await supabase
+      .from('subscriptions')
+      .update({
+        sessions_remaining: subscription.sessions_remaining - 1,
+        sessions_used: subscription.sessions_used + 1,
+        updated_at: new Date().toISOString(),
+      } as never)
+      .eq('id', subscriptionId)
+
+    if (error) throw error
+  } else {
+    // Extra session - add charge
+    const { error } = await supabase
+      .from('subscriptions')
+      .update({
+        extra_sessions_used: subscription.extra_sessions_used + 1,
+        payment_due_amount: (subscription.payment_due_amount || 0) + extraCharge,
+        payment_status: 'pending',
+        updated_at: new Date().toISOString(),
+      } as never)
+      .eq('id', subscriptionId)
+
+    if (error) throw error
+  }
+}
+
+export async function getClientSubscriptionClient(userId: string): Promise<SubscriptionWithDetails | null> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select(`
+      *,
+      user:users!subscriptions_user_id_fkey(id, name, email, phone),
+      plan:plans!subscriptions_plan_id_fkey(id, name, type, sessions_per_period, price)
+    `)
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  return data as unknown as SubscriptionWithDetails | null
 }

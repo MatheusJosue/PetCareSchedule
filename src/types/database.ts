@@ -10,6 +10,8 @@ export type PetSpecies = "cachorro" | "gato" | "outro"
 
 export type SubscriptionStatus = "active" | "paused" | "cancelled"
 
+export type PaymentStatus = "paid" | "pending" | "overdue"
+
 export interface User {
   id: string
   email: string
@@ -97,9 +99,15 @@ export interface Subscription {
   user_id: string
   plan_id: string
   start_date: string
+  end_date: string | null
   next_billing_date: string | null
   sessions_remaining: number
+  sessions_used: number
+  extra_sessions_used: number
   status: SubscriptionStatus
+  payment_status: PaymentStatus
+  payment_due_amount: number
+  last_payment_date: string | null
   created_at: string
   updated_at: string
   // Relations

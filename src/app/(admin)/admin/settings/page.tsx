@@ -20,14 +20,23 @@ import {
   RefreshCw,
 } from "lucide-react"
 
+interface DaySchedule {
+  enabled: boolean
+  start: string
+  end: string
+}
+
+interface WeekSchedule {
+  [key: string]: DaySchedule
+}
+
 interface BusinessSettings {
   name: string
   email: string
   phone: string
   address: string
   description: string
-  openingTime: string
-  closingTime: string
+  schedule: WeekSchedule
   slotDuration: number
   maxAdvanceDays: number
 }
@@ -39,14 +48,33 @@ interface NotificationSettings {
   marketingEmails: boolean
 }
 
+const defaultSchedule: WeekSchedule = {
+  "0": { enabled: true, start: "08:00", end: "21:00" },   // Domingo - dia livre
+  "1": { enabled: true, start: "08:00", end: "21:00" },   // Segunda - folga
+  "2": { enabled: true, start: "18:00", end: "21:00" },   // Terça
+  "3": { enabled: true, start: "18:00", end: "21:00" },   // Quarta
+  "4": { enabled: true, start: "18:00", end: "21:00" },   // Quinta
+  "5": { enabled: true, start: "18:00", end: "21:00" },   // Sexta
+  "6": { enabled: true, start: "18:00", end: "21:00" },   // Sábado
+}
+
+const dayNames: { [key: string]: string } = {
+  "0": "Domingo",
+  "1": "Segunda-feira",
+  "2": "Terça-feira",
+  "3": "Quarta-feira",
+  "4": "Quinta-feira",
+  "5": "Sexta-feira",
+  "6": "Sábado",
+}
+
 const defaultBusinessSettings: BusinessSettings = {
   name: "Pet Care Schedule",
   email: "contato@petcare.com",
   phone: "(11) 99999-9999",
   address: "Jundiaí - SP",
   description: "O melhor cuidado para seu pet",
-  openingTime: "08:00",
-  closingTime: "18:00",
+  schedule: defaultSchedule,
   slotDuration: 60,
   maxAdvanceDays: 30,
 }
@@ -74,7 +102,7 @@ export default function AdminSettingsPage() {
       const settings = await getSettingsClient()
 
       // Map individual settings keys to business settings object
-      const businessHours = settings.business_hours as { start?: string; end?: string; days?: number[] } | undefined
+      const businessHours = settings.business_hours as { schedule?: WeekSchedule } | undefined
 
       setBusinessSettings({
         name: (settings.company_name as string) || defaultBusinessSettings.name,
@@ -82,8 +110,7 @@ export default function AdminSettingsPage() {
         phone: (settings.company_phone as string) || defaultBusinessSettings.phone,
         address: (settings.company_address as string) || defaultBusinessSettings.address,
         description: (settings.company_description as string) || defaultBusinessSettings.description,
-        openingTime: businessHours?.start || defaultBusinessSettings.openingTime,
-        closingTime: businessHours?.end || defaultBusinessSettings.closingTime,
+        schedule: businessHours?.schedule || defaultSchedule,
         slotDuration: Number(settings.slot_duration) || defaultBusinessSettings.slotDuration,
         maxAdvanceDays: Number(settings.advance_booking_days) || defaultBusinessSettings.maxAdvanceDays,
       })
@@ -115,9 +142,7 @@ export default function AdminSettingsPage() {
         updateSettingClient('company_address', businessSettings.address),
         updateSettingClient('company_description', businessSettings.description),
         updateSettingClient('business_hours', {
-          start: businessSettings.openingTime,
-          end: businessSettings.closingTime,
-          days: [1, 2, 3, 4, 5, 6] // Monday to Saturday
+          schedule: businessSettings.schedule
         }),
         updateSettingClient('slot_duration', businessSettings.slotDuration),
         updateSettingClient('advance_booking_days', businessSettings.maxAdvanceDays),
@@ -129,6 +154,19 @@ export default function AdminSettingsPage() {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const updateDaySchedule = (day: string, field: keyof DaySchedule, value: boolean | string) => {
+    setBusinessSettings(prev => ({
+      ...prev,
+      schedule: {
+        ...prev.schedule,
+        [day]: {
+          ...prev.schedule[day],
+          [field]: value
+        }
+      }
+    }))
   }
 
   const handleSaveNotificationSettings = async () => {
@@ -319,36 +357,125 @@ export default function AdminSettingsPage() {
             >
               <h3 className="font-semibold flex items-center" style={{ gap: '8px', marginBottom: '16px', color: 'var(--text-primary)' }}>
                 <Clock className="h-5 w-5" style={{ color: 'var(--accent-purple)' }} />
-                Horário de Funcionamento
+                Horário de Funcionamento por Dia
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4" style={{ gap: '16px' }}>
-                <Input
-                  label="Abertura"
-                  type="time"
-                  value={businessSettings.openingTime}
-                  onChange={(e) => setBusinessSettings({ ...businessSettings, openingTime: e.target.value })}
-                />
-                <Input
-                  label="Fechamento"
-                  type="time"
-                  value={businessSettings.closingTime}
-                  onChange={(e) => setBusinessSettings({ ...businessSettings, closingTime: e.target.value })}
-                />
-                <Input
-                  label="Duração do Slot (min)"
-                  type="number"
-                  value={businessSettings.slotDuration}
-                  onChange={(e) => setBusinessSettings({ ...businessSettings, slotDuration: Number(e.target.value) })}
-                  min={15}
-                  step={15}
-                />
-                <Input
-                  label="Dias de Antecedência"
-                  type="number"
-                  value={businessSettings.maxAdvanceDays}
-                  onChange={(e) => setBusinessSettings({ ...businessSettings, maxAdvanceDays: Number(e.target.value) })}
-                  min={1}
-                />
+              <p className="text-sm" style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>
+                Configure os horários disponíveis para cada dia da semana
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {Object.keys(dayNames).map((day) => {
+                  const schedule = businessSettings.schedule[day] || defaultSchedule[day]
+                  return (
+                    <div
+                      key={day}
+                      className="grid rounded-lg border"
+                      style={{
+                        gridTemplateColumns: 'auto 1fr auto',
+                        alignItems: 'center',
+                        padding: '10px 14px',
+                        gap: '12px',
+                        background: schedule.enabled ? 'var(--bg-secondary)' : 'var(--bg-primary)',
+                        borderColor: 'var(--border-primary)',
+                        opacity: schedule.enabled ? 1 : 0.6
+                      }}
+                    >
+                      {/* Toggle */}
+                      <button
+                        onClick={() => updateDaySchedule(day, 'enabled', !schedule.enabled)}
+                        className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
+                        style={{
+                          background: schedule.enabled
+                            ? 'linear-gradient(to right, #7c3aed, #a855f7)'
+                            : 'var(--border-primary)'
+                        }}
+                      >
+                        <div
+                          className="absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm"
+                          style={{
+                            left: schedule.enabled ? '22px' : '2px'
+                          }}
+                        />
+                      </button>
+
+                      {/* Day name */}
+                      <span
+                        className="font-medium text-sm"
+                        style={{
+                          color: schedule.enabled ? 'var(--text-primary)' : 'var(--text-muted)',
+                          minWidth: '100px'
+                        }}
+                      >
+                        {dayNames[day]}
+                      </span>
+
+                      {/* Time inputs or Closed label */}
+                      {schedule.enabled ? (
+                        <div className="flex items-center" style={{ gap: '6px' }}>
+                          <input
+                            type="time"
+                            value={schedule.start}
+                            onChange={(e) => updateDaySchedule(day, 'start', e.target.value)}
+                            className="rounded-lg border text-sm"
+                            style={{
+                              padding: '6px 8px',
+                              width: '100px',
+                              background: 'var(--bg-primary)',
+                              borderColor: 'var(--border-primary)',
+                              color: 'var(--text-primary)'
+                            }}
+                          />
+                          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>-</span>
+                          <input
+                            type="time"
+                            value={schedule.end}
+                            onChange={(e) => updateDaySchedule(day, 'end', e.target.value)}
+                            className="rounded-lg border text-sm"
+                            style={{
+                              padding: '6px 8px',
+                              width: '100px',
+                              background: 'var(--bg-primary)',
+                              borderColor: 'var(--border-primary)',
+                              color: 'var(--text-primary)'
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-sm" style={{ color: 'var(--text-muted)', minWidth: '210px' }}>
+                          Fechado
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: '16px', marginTop: '20px' }}>
+                <div>
+                  <Input
+                    label="Duração do Slot (min)"
+                    type="number"
+                    value={businessSettings.slotDuration}
+                    onChange={(e) => setBusinessSettings({ ...businessSettings, slotDuration: Number(e.target.value) })}
+                    min={15}
+                    step={15}
+                  />
+                  <p className="text-xs" style={{ color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Intervalo entre cada horário disponível
+                  </p>
+                </div>
+                <div>
+                  <Input
+                    label="Máximo de Dias para Agendamento"
+                    type="number"
+                    value={businessSettings.maxAdvanceDays}
+                    onChange={(e) => setBusinessSettings({ ...businessSettings, maxAdvanceDays: Number(e.target.value) })}
+                    min={1}
+                  />
+                  <p className="text-xs" style={{ color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Quantos dias no futuro o cliente pode agendar
+                  </p>
+                </div>
               </div>
             </div>
 

@@ -20,8 +20,8 @@ export default function AdminLayout({
       />
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden">
-        <div style={{ padding: '16px', paddingBottom: '32px', maxWidth: '100%', boxSizing: 'border-box' }}>
+      <main className="flex-1 overflow-y-auto overflow-x-hidden flex justify-center">
+        <div style={{ padding: '16px 24px', paddingBottom: '32px', boxSizing: 'border-box', width: '100%', maxWidth: '1024px' }}>
           {children}
         </div>
       </main>

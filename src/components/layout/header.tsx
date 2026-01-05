@@ -23,6 +23,7 @@ import {
   Sun,
   Moon,
   CreditCard,
+  Receipt,
 } from "lucide-react"
 
 interface HeaderProps {
@@ -46,6 +47,7 @@ const adminNavItems = [
   { href: "/admin/calendar", label: "Agenda", icon: <CalendarDays className="h-5 w-5" /> },
   { href: "/admin/appointments", label: "Agendamentos", icon: <ClipboardList className="h-5 w-5" /> },
   { href: "/admin/customers", label: "Clientes", icon: <Users className="h-5 w-5" /> },
+  { href: "/admin/subscriptions", label: "Assinaturas", icon: <Receipt className="h-5 w-5" /> },
   { href: "/admin/services", label: "Serviços", icon: <Scissors className="h-5 w-5" /> },
   { href: "/admin/plans", label: "Planos", icon: <CreditCard className="h-5 w-5" /> },
   { href: "/admin/settings", label: "Configurações", icon: <Settings className="h-5 w-5" /> },
