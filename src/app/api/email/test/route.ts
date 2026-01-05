@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .select('role')
       .eq('id', user.id)
-      .single()
+      .single() as { data: { role: string } | null; error: any }
 
     const isDev = process.env.NODE_ENV === 'development'
     const isAdmin = userData?.role === 'admin'
@@ -52,7 +52,10 @@ export async function POST(request: NextRequest) {
       appointmentId: 'test-123'
     }
 
-    let result
+    let result: { success: boolean; messageId?: string; error?: string } = {
+      success: false,
+      error: 'No email was sent'
+    }
 
     switch (type) {
       case 'confirmation':

@@ -438,6 +438,7 @@ export async function updateSettingClient(key: string, value: unknown) {
 export interface SubscriptionWithDetails {
   id: string
   user_id: string
+  pet_id: string | null
   plan_id: string
   start_date: string
   end_date: string | null
@@ -457,6 +458,11 @@ export interface SubscriptionWithDetails {
     email: string
     phone: string | null
   } | null
+  pet: {
+    id: string
+    name: string
+    species: string
+  } | null
   plan: {
     id: string
     name: string
@@ -474,6 +480,7 @@ export async function getSubscriptionsClient(status?: string): Promise<Subscript
     .select(`
       *,
       user:users!subscriptions_user_id_fkey(id, name, email, phone),
+      pet:pets!subscriptions_pet_id_fkey(id, name, species),
       plan:plans!subscriptions_plan_id_fkey(id, name, type, sessions_per_period, price)
     `)
     .order('created_at', { ascending: false })
@@ -490,6 +497,7 @@ export async function getSubscriptionsClient(status?: string): Promise<Subscript
 
 export async function createSubscriptionClient(subscription: {
   user_id: string
+  pet_id?: string
   plan_id: string
   sessions_remaining: number
   start_date?: string
@@ -502,6 +510,7 @@ export async function createSubscriptionClient(subscription: {
     .from('subscriptions')
     .insert({
       user_id: subscription.user_id,
+      pet_id: subscription.pet_id || null,
       plan_id: subscription.plan_id,
       start_date: subscription.start_date || new Date().toISOString().split('T')[0],
       end_date: subscription.end_date || null,

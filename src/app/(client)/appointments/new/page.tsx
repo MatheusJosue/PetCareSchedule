@@ -45,6 +45,17 @@ interface Service {
   base_price: number;
 }
 
+interface Plan {
+  id: string;
+  name: string;
+  type: 'avulso' | 'semanal' | 'mensal';
+  description: string | null;
+  sessions_per_period: number;
+  price: number;
+  discount_percent: number;
+  active: boolean;
+}
+
 interface DaySchedule {
   enabled: boolean;
   start: string;
@@ -87,6 +98,8 @@ export default function NewAppointmentPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [pets, setPets] = useState<Pet[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [selectedPets, setSelectedPets] = useState<Pet[]>([]);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -138,6 +151,17 @@ export default function NewAppointmentPage() {
 
         if (servicesError) throw servicesError;
         setServices((servicesData || []) as Service[]);
+
+        // Buscar planos ativos
+        const { data: plansData, error: plansError } = await supabase
+          .from('plans')
+          .select('*')
+          .eq('active', true)
+          .order('type');
+
+        if (!plansError && plansData) {
+          setPlans((plansData || []) as Plan[]);
+        }
 
         // Buscar configurações de horário
         const { data: settingsData, error: settingsError } = await supabase
@@ -289,19 +313,22 @@ export default function NewAppointmentPage() {
   };
 
   const steps = [
-    { number: 1, title: "Pet", icon: <PawPrint className="h-4 w-4" /> },
-    { number: 2, title: "Serviço", icon: <Scissors className="h-4 w-4" /> },
-    { number: 3, title: "Data/Hora", icon: <Calendar className="h-4 w-4" /> },
-    { number: 4, title: "Confirmar", icon: <Check className="h-4 w-4" /> },
+    { number: 1, title: "Plano", icon: <CreditCard className="h-4 w-4" /> },
+    { number: 2, title: "Pet", icon: <PawPrint className="h-4 w-4" /> },
+    { number: 3, title: "Serviço", icon: <Scissors className="h-4 w-4" /> },
+    { number: 4, title: "Data/Hora", icon: <Calendar className="h-4 w-4" /> },
+    { number: 5, title: "Confirmar", icon: <Check className="h-4 w-4" /> },
   ];
 
   const canProceed = () => {
     switch (currentStep) {
       case 1:
-        return selectedPets.length > 0;
+        return selectedPlan !== null;
       case 2:
-        return selectedServices.length > 0;
+        return selectedPets.length > 0;
       case 3:
+        return selectedServices.length > 0;
+      case 4:
         return selectedDate !== null && selectedTime !== null;
       default:
         return true;
@@ -388,7 +415,7 @@ export default function NewAppointmentPage() {
   };
 
   const handleNext = () => {
-    if (currentStep < 4) {
+    if (currentStep < 5) {
       setCurrentStep(currentStep + 1);
     }
   };
@@ -400,7 +427,7 @@ export default function NewAppointmentPage() {
   };
 
   const handleConfirm = async () => {
-    if (!user || selectedServices.length === 0 || !selectedDate || !selectedTime || selectedPets.length === 0) {
+    if (!user || !selectedPlan || selectedServices.length === 0 || !selectedDate || !selectedTime || selectedPets.length === 0) {
       addToast("Preencha todos os campos", "error");
       return;
     }
@@ -408,11 +435,82 @@ export default function NewAppointmentPage() {
     setIsLoading(true);
 
     try {
+      // Map to store subscription_id for each pet
+      const petSubscriptions: Map<string, string> = new Map();
+
+      // For non-avulso plans, create/get subscription for each pet
+      if (selectedPlan.type !== 'avulso') {
+        for (const pet of selectedPets) {
+          // Check if pet already has an active subscription for this plan
+          const { data: existingSub } = await supabase
+            .from('subscriptions')
+            .select('id, sessions_remaining, payment_status, payment_due_amount')
+            .eq('pet_id', pet.id)
+            .eq('plan_id', selectedPlan.id)
+            .eq('status', 'active')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (existingSub) {
+            // Check if can book with existing subscription
+            const sub = existingSub as any;
+            if (sub.payment_status === 'pending' && sub.payment_due_amount > 0) {
+              const amount = new Intl.NumberFormat("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              }).format(sub.payment_due_amount);
+              addToast(`${pet.name} possui pagamento pendente de ${amount}`, "error");
+              return;
+            }
+            petSubscriptions.set(pet.id, sub.id);
+          } else {
+            // Create new subscription for this pet
+            const { data: newSubscription, error: subError } = await supabase
+              .from('subscriptions')
+              .insert({
+                user_id: user.id,
+                pet_id: pet.id,
+                plan_id: selectedPlan.id,
+                start_date: new Date().toISOString().split('T')[0],
+                sessions_remaining: selectedPlan.sessions_per_period,
+                sessions_used: 0,
+                extra_sessions_used: 0,
+                status: 'active',
+                payment_status: 'paid',
+                payment_due_amount: 0,
+              } as never)
+              .select('id')
+              .single();
+
+            if (subError) throw subError;
+            petSubscriptions.set(pet.id, (newSubscription as any)?.id);
+          }
+        }
+      }
+
+      // Use sessions from each pet's subscription
+      // Each appointment (regardless of number of services) consumes 1 session
+      for (const pet of selectedPets) {
+        const subscriptionId = petSubscriptions.get(pet.id);
+        if (subscriptionId) {
+          // Use 1 session per pet (not per service)
+          const { error: useError } = await (supabase.rpc as any)('use_subscription_session', {
+            p_subscription_id: subscriptionId,
+            p_extra_charge: selectedPlan.price / selectedPlan.sessions_per_period
+          });
+
+          if (useError) throw useError;
+        }
+      }
+
       // Criar um agendamento para cada combinação de pet + serviço
       const appointments: Array<{
         user_id: string;
         pet_id: string;
         service_id: string;
+        plan_id: string | null;
+        subscription_id: string | null;
         scheduled_date: string;
         scheduled_time: string;
         status: 'pending';
@@ -427,6 +525,8 @@ export default function NewAppointmentPage() {
             user_id: user.id,
             pet_id: pet.id,
             service_id: service.id,
+            plan_id: selectedPlan.id,
+            subscription_id: petSubscriptions.get(pet.id) || null,
             scheduled_date: selectedDate,
             scheduled_time: selectedTime,
             status: 'pending',
@@ -444,17 +544,17 @@ export default function NewAppointmentPage() {
 
       if (error) throw error;
 
-      // Enviar notificação para o admin sobre os novos agendamentos
+      // Enviar notificação por email sobre os novos agendamentos
       if (createdAppointments && createdAppointments.length > 0) {
-        for (const apt of createdAppointments) {
+        for (const apt of createdAppointments as any[]) {
           fetch('/api/email/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              type: 'new_appointment_admin',
+              type: 'requested',
               appointmentId: apt.id
             })
-          }).catch(err => console.error('Error sending admin notification:', err));
+          }).catch(err => console.error('Error sending email notification:', err));
         }
       }
 
@@ -536,16 +636,84 @@ export default function NewAppointmentPage() {
             Complete seu perfil com rua, número, cidade e estado.
           </p>
           <div className="flex items-center justify-center" style={{ gap: '12px' }}>
-            <Link href="/">
+            <Link href="/dashboard">
               <Button variant="outline">
                 <ArrowLeft className="h-4 w-4" />
                 Voltar
               </Button>
             </Link>
-            <Link href="/profile">
+            <Link href="/profile?redirect=/dashboard">
               <Button>
                 <MapPin className="h-4 w-4" />
                 Completar endereço
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Bloquear acesso se não tiver pets cadastrados
+  if (!authLoading && !isFetching && pets.length === 0) {
+    return (
+      <div className="w-full" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {/* Header */}
+        <div className="flex items-center" style={{ gap: '16px' }}>
+          <button
+            onClick={() => router.back()}
+            className="h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 border"
+            style={{
+              background: 'var(--bg-secondary)',
+              borderColor: 'var(--border-primary)',
+              color: 'var(--text-muted)'
+            }}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-[1.5rem] font-bold" style={{ color: 'var(--text-primary)' }}>
+              Novo Agendamento
+            </h1>
+          </div>
+        </div>
+
+        {/* No Pets Message */}
+        <div
+          className="rounded-2xl border text-center"
+          style={{
+            padding: '48px 24px',
+            background: 'var(--bg-secondary)',
+            borderColor: 'var(--border-primary)',
+            boxShadow: 'var(--shadow-md)'
+          }}
+        >
+          <div
+            className="h-16 w-16 rounded-full flex items-center justify-center mx-auto"
+            style={{ marginBottom: '20px', background: 'var(--accent-purple-bg)' }}
+          >
+            <PawPrint className="h-8 w-8" style={{ color: 'var(--accent-purple)' }} />
+          </div>
+          <h2 className="text-xl font-bold" style={{ marginBottom: '8px', color: 'var(--text-primary)' }}>
+            Nenhum pet cadastrado
+          </h2>
+          <p style={{ marginBottom: '8px', color: 'var(--text-muted)', maxWidth: '400px', marginLeft: 'auto', marginRight: 'auto' }}>
+            Para realizar um agendamento, você precisa cadastrar pelo menos um pet primeiro.
+          </p>
+          <p className="text-sm" style={{ marginBottom: '24px', color: 'var(--text-muted)' }}>
+            Adicione as informações do seu pet para continuar.
+          </p>
+          <div className="flex items-center justify-center" style={{ gap: '12px' }}>
+            <Link href="/dashboard">
+              <Button variant="outline">
+                <ArrowLeft className="h-4 w-4" />
+                Voltar
+              </Button>
+            </Link>
+            <Link href="/pets/new">
+              <Button>
+                <Plus className="h-4 w-4" />
+                Cadastrar pet
               </Button>
             </Link>
           </div>
@@ -659,12 +827,12 @@ export default function NewAppointmentPage() {
           <h1 className="text-[1.5rem] font-bold" style={{ color: 'var(--text-primary)' }}>
             Novo Agendamento
           </h1>
-          <p style={{ color: 'var(--text-muted)' }}>Passo {currentStep} de 4</p>
+          <p style={{ color: 'var(--text-muted)' }}>Passo {currentStep} de 5</p>
         </div>
       </div>
 
       {/* Subscription Info Banner */}
-      {subscription && (
+      {subscription && currentStep > 1 && (
         <div
           className="rounded-xl flex items-center justify-between"
           style={{
@@ -750,15 +918,149 @@ export default function NewAppointmentPage() {
           style={{ padding: '20px 24px', borderColor: 'var(--border-primary)' }}
         >
           <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-            {currentStep === 1 && "Selecione o Pet"}
-            {currentStep === 2 && "Selecione o Serviço"}
-            {currentStep === 3 && "Selecione Data e Hora"}
-            {currentStep === 4 && "Confirme seu Agendamento"}
+            {currentStep === 1 && "Selecione o Plano"}
+            {currentStep === 2 && "Selecione o Pet"}
+            {currentStep === 3 && "Selecione o Serviço"}
+            {currentStep === 4 && "Selecione Data e Hora"}
+            {currentStep === 5 && "Confirme seu Agendamento"}
           </h2>
         </div>
         <div style={{ padding: '24px' }}>
-          {/* Step 1: Select Pet(s) */}
+          {/* Step 1: Select Plan */}
           {currentStep === 1 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Info message */}
+              <div
+                className="rounded-xl text-sm"
+                style={{
+                  padding: '12px 16px',
+                  background: 'var(--accent-blue-bg)',
+                  color: 'var(--accent-blue)'
+                }}
+              >
+                Escolha um plano. Cada pet terá sua própria assinatura vinculada ao plano selecionado.
+              </div>
+
+              {/* Loading state */}
+              {isFetching && (
+                <div className="grid sm:grid-cols-3" style={{ gap: '16px' }}>
+                  {[1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl border animate-pulse"
+                      style={{ padding: '20px', background: 'var(--bg-tertiary)', borderColor: 'var(--border-primary)' }}
+                    >
+                      <div className="h-6 w-24 rounded mb-4" style={{ background: 'var(--bg-secondary)' }} />
+                      <div className="h-4 w-full rounded mb-2" style={{ background: 'var(--bg-secondary)' }} />
+                      <div className="h-4 w-3/4 rounded" style={{ background: 'var(--bg-secondary)' }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* No plans message */}
+              {!isFetching && plans.length === 0 && (
+                <div
+                  className="rounded-2xl border text-center"
+                  style={{
+                    padding: '32px',
+                    background: 'var(--bg-tertiary)',
+                    borderColor: 'var(--border-primary)'
+                  }}
+                >
+                  <CreditCard className="h-12 w-12 mx-auto" style={{ color: 'var(--text-muted)', marginBottom: '16px' }} />
+                  <p className="font-medium" style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    Nenhum plano disponível
+                  </p>
+                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                    Entre em contato para saber mais sobre os planos
+                  </p>
+                </div>
+              )}
+
+              {/* Plan cards */}
+              {!isFetching && plans.length > 0 && (
+                <div className="grid sm:grid-cols-3" style={{ gap: '16px' }}>
+                  {plans.map((plan) => {
+                    const isSelected = selectedPlan?.id === plan.id;
+                    return (
+                      <button
+                        key={plan.id}
+                        onClick={() => setSelectedPlan(plan)}
+                        className={cn(
+                          "flex flex-col rounded-xl border-2 transition-all text-left"
+                        )}
+                        style={{
+                          padding: '20px',
+                          background: isSelected ? 'var(--accent-purple-bg)' : 'var(--bg-tertiary)',
+                          borderColor: isSelected ? 'var(--accent-purple)' : 'var(--border-primary)'
+                        }}
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#a855f7] flex items-center justify-center text-white shadow-lg shadow-purple-400/20">
+                            <CreditCard className="h-6 w-6" />
+                          </div>
+                          {plan.type !== 'avulso' && plan.discount_percent > 0 && (
+                            <div
+                              className="rounded-lg text-xs font-semibold"
+                              style={{
+                                padding: '4px 8px',
+                                background: 'var(--accent-green-bg)',
+                                color: 'var(--accent-green)'
+                              }}
+                            >
+                              -{plan.discount_percent}%
+                            </div>
+                          )}
+                        </div>
+                        <p className="font-bold" style={{ color: 'var(--text-primary)', fontSize: '1.1rem' }}>
+                          {plan.name}
+                        </p>
+                        <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+                          {plan.description || 'Plano flexível'}
+                        </p>
+                        <div style={{ marginTop: 'auto' }}>
+                          <div className="flex items-baseline justify-between mb-2">
+                            <span className="text-2xl font-bold" style={{ color: 'var(--accent-green)' }}>
+                              {formatCurrency(plan.price)}
+                            </span>
+                            {plan.type !== 'avulso' && (
+                              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                {plan.sessions_per_period} sessões
+                              </span>
+                            )}
+                          </div>
+                          {plan.type !== 'avulso' && (
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                              Por sessão: {formatCurrency(plan.price / plan.sessions_per_period)}
+                            </p>
+                          )}
+                        </div>
+                        <div
+                          className={cn(
+                            "h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all mt-4 self-end",
+                            isSelected ? "border-[#7c3aed] bg-[#7c3aed]" : "border-gray-300"
+                          )}
+                        >
+                          {isSelected && <Check className="h-4 w-4 text-white" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Selected plan info */}
+              {selectedPlan && (
+                <p className="text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+                  Plano selecionado: <span className="font-semibold" style={{ color: 'var(--accent-purple)' }}>{selectedPlan.name}</span>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: Select Pet(s) */}
+          {currentStep === 2 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Loading state */}
               {isFetching && (
@@ -873,8 +1175,8 @@ export default function NewAppointmentPage() {
             </div>
           )}
 
-          {/* Step 2: Select Service */}
-          {currentStep === 2 && (
+          {/* Step 3: Select Service */}
+          {currentStep === 3 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Loading state */}
               {isFetching && (
@@ -1008,8 +1310,8 @@ export default function NewAppointmentPage() {
             </div>
           )}
 
-          {/* Step 3: Select Date/Time */}
-          {currentStep === 3 && (
+          {/* Step 4: Select Date/Time */}
+          {currentStep === 4 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               {/* Date Selection */}
               <div>
@@ -1103,8 +1405,9 @@ export default function NewAppointmentPage() {
             </div>
           )}
 
-          {/* Step 4: Confirmation */}
-          {currentStep === 4 &&
+          {/* Step 5: Confirmation */}
+          {currentStep === 5 &&
+            selectedPlan &&
             selectedPets.length > 0 &&
             selectedServices.length > 0 &&
             selectedDate &&
@@ -1123,6 +1426,28 @@ export default function NewAppointmentPage() {
                   </p>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="flex items-start" style={{ gap: '12px' }}>
+                      <CreditCard className="h-5 w-5 mt-0.5" style={{ color: 'var(--text-muted)' }} />
+                      <div>
+                        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                          Plano
+                        </p>
+                        <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {selectedPlan.name}
+                        </p>
+                        {selectedPlan.type !== 'avulso' && (
+                          <p className="text-xs" style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {selectedPlan.sessions_per_period} sessões • {formatCurrency(selectedPlan.price)}
+                          </p>
+                        )}
+                        {selectedPlan.type !== 'avulso' && selectedPets.length > 0 && (
+                          <p className="text-xs" style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Cada pet terá sua própria assinatura
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="flex items-start" style={{ gap: '12px' }}>
                       <PawPrint className="h-5 w-5 mt-0.5" style={{ color: 'var(--text-muted)' }} />
                       <div>
@@ -1238,7 +1563,7 @@ export default function NewAppointmentPage() {
           Voltar
         </Button>
 
-        {currentStep < 4 ? (
+        {currentStep < 5 ? (
           <Button onClick={handleNext} disabled={!canProceed()}>
             Próximo
             <ArrowRight className="h-4 w-4" />

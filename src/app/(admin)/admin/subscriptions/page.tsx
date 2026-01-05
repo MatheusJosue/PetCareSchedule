@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Modal, ModalActions } from "@/components/ui/modal"
 import { useToast } from "@/components/ui/toast"
+import { createClient } from "@/lib/supabase/client"
 import {
   getSubscriptionsClient,
   getCustomersClient,
@@ -28,12 +29,19 @@ import {
   DollarSign,
   Search,
   Filter,
+  PawPrint,
 } from "lucide-react"
 
 interface Customer {
   id: string
   name: string | null
   email: string
+}
+
+interface Pet {
+  id: string
+  name: string
+  species: string
 }
 
 interface Plan {
@@ -46,9 +54,11 @@ interface Plan {
 
 export default function AdminSubscriptionsPage() {
   const { addToast } = useToast()
+  const supabase = createClient()
   const [subscriptions, setSubscriptions] = useState<SubscriptionWithDetails[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
+  const [pets, setPets] = useState<Pet[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
@@ -65,6 +75,7 @@ export default function AdminSubscriptionsPage() {
   // Form state
   const [formData, setFormData] = useState({
     user_id: "",
+    pet_id: "",
     plan_id: "",
   })
 
@@ -91,11 +102,33 @@ export default function AdminSubscriptionsPage() {
     fetchData()
   }, [fetchData])
 
+  // Fetch pets when user is selected
+  useEffect(() => {
+    if (!formData.user_id) {
+      setPets([])
+      return
+    }
+
+    const fetchPets = async () => {
+      const { data } = await supabase
+        .from('pets')
+        .select('id, name, species')
+        .eq('user_id', formData.user_id)
+
+      if (data) {
+        setPets(data as Pet[])
+      }
+    }
+
+    fetchPets()
+  }, [formData.user_id, supabase])
+
   const filteredSubscriptions = subscriptions.filter(sub => {
     const matchesSearch = !searchTerm ||
       sub.user?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sub.user?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sub.plan?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      sub.plan?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      sub.pet?.name?.toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesStatus = statusFilter === "all" || sub.status === statusFilter
     const matchesPayment = paymentFilter === "all" || sub.payment_status === paymentFilter
@@ -104,8 +137,8 @@ export default function AdminSubscriptionsPage() {
   })
 
   const handleCreateSubscription = async () => {
-    if (!formData.user_id || !formData.plan_id) {
-      addToast("Selecione cliente e plano", "error")
+    if (!formData.user_id || !formData.pet_id || !formData.plan_id) {
+      addToast("Selecione cliente, pet e plano", "error")
       return
     }
 
@@ -116,13 +149,14 @@ export default function AdminSubscriptionsPage() {
 
       await createSubscriptionClient({
         user_id: formData.user_id,
+        pet_id: formData.pet_id,
         plan_id: formData.plan_id,
         sessions_remaining: plan.sessions_per_period,
       })
 
       addToast("Assinatura criada com sucesso!", "success")
       setIsCreateModalOpen(false)
-      setFormData({ user_id: "", plan_id: "" })
+      setFormData({ user_id: "", pet_id: "", plan_id: "" })
       fetchData()
     } catch (error) {
       console.error('Error creating subscription:', error)
@@ -200,7 +234,7 @@ export default function AdminSubscriptionsPage() {
       case "paused":
         return <Badge variant="warning">Pausada</Badge>
       case "cancelled":
-        return <Badge variant="destructive">Cancelada</Badge>
+        return <Badge variant="error">Cancelada</Badge>
       default:
         return <Badge>{status}</Badge>
     }
@@ -213,7 +247,7 @@ export default function AdminSubscriptionsPage() {
       case "pending":
         return <Badge variant="warning">Pendente {formatCurrency(amount)}</Badge>
       case "overdue":
-        return <Badge variant="destructive">Atrasado {formatCurrency(amount)}</Badge>
+        return <Badge variant="error">Atrasado {formatCurrency(amount)}</Badge>
       default:
         return <Badge>{status}</Badge>
     }
@@ -224,7 +258,7 @@ export default function AdminSubscriptionsPage() {
       case "semanal":
         return <Badge variant="info">Semanal</Badge>
       case "mensal":
-        return <Badge variant="purple">Mensal</Badge>
+        return <Badge variant="primary">Mensal</Badge>
       default:
         return <Badge>Avulso</Badge>
     }
@@ -386,6 +420,11 @@ export default function AdminSubscriptionsPage() {
                     <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
                       {subscription.user?.name || subscription.user?.email || 'Cliente'}
                     </span>
+                    {subscription.pet && (
+                      <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                        • Pet: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{subscription.pet.name}</span>
+                      </span>
+                    )}
                     {getStatusBadge(subscription.status)}
                     {getPaymentBadge(subscription.payment_status, subscription.payment_due_amount)}
                   </div>
@@ -494,7 +533,7 @@ export default function AdminSubscriptionsPage() {
             </label>
             <select
               value={formData.user_id}
-              onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, user_id: e.target.value, pet_id: "" })}
               className="w-full rounded-xl border text-sm"
               style={{
                 padding: '12px 16px',
@@ -507,6 +546,31 @@ export default function AdminSubscriptionsPage() {
               {customers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {customer.name || customer.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+              Pet
+            </label>
+            <select
+              value={formData.pet_id}
+              onChange={(e) => setFormData({ ...formData, pet_id: e.target.value })}
+              disabled={!formData.user_id}
+              className="w-full rounded-xl border text-sm"
+              style={{
+                padding: '12px 16px',
+                background: 'var(--bg-tertiary)',
+                borderColor: 'var(--border-primary)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <option value="">Selecione um pet</option>
+              {pets.map((pet) => (
+                <option key={pet.id} value={pet.id}>
+                  {pet.name} ({pet.species})
                 </option>
               ))}
             </select>
@@ -570,6 +634,11 @@ export default function AdminSubscriptionsPage() {
               <p className="font-semibold" style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>
                 {selectedSubscription.user?.name || selectedSubscription.user?.email}
               </p>
+              {selectedSubscription.pet && (
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Pet: {selectedSubscription.pet.name}
+                </p>
+              )}
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 Plano: {selectedSubscription.plan?.name}
               </p>
