@@ -106,6 +106,7 @@ export default function NewAppointmentPage() {
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
+  const [bookedSlots, setBookedSlots] = useState<string[]>([]); // Horários já agendados
   // Default schedule - all days enabled 08:00-21:00 until settings load
   const defaultSchedule: WeekSchedule = {
     "0": { enabled: true, start: "08:00", end: "21:00" },
@@ -235,6 +236,27 @@ export default function NewAppointmentPage() {
     fetchData();
   }, [user, authLoading]);
 
+  // Buscar agendamentos existentes quando a data mudar
+  useEffect(() => {
+    async function fetchBookedSlots() {
+      if (!selectedDate) {
+        setBookedSlots([]);
+        return;
+      }
+
+      const { data: appointments } = await supabase
+        .from('appointments')
+        .select('scheduled_time')
+        .eq('scheduled_date', selectedDate)
+        .in('status', ['pending', 'confirmed']);
+
+      const times = appointments?.map(a => a.scheduled_time) || [];
+      setBookedSlots(times);
+    }
+
+    fetchBookedSlots();
+  }, [selectedDate]);
+
   // Generate available dates for current month and next month
   const getAvailableDates = () => {
     const dates: string[] = [];
@@ -295,7 +317,9 @@ export default function NewAppointmentPage() {
   };
 
   const availableDates = getAvailableDates();
-  const availableTimeSlots = selectedDate ? getTimeSlotsForDate(selectedDate) : [];
+  const availableTimeSlots = selectedDate
+    ? getTimeSlotsForDate(selectedDate).filter(time => !bookedSlots.includes(time))
+    : [];
 
   // Ícone do serviço baseado no nome
   const getServiceIcon = (name: string) => {
@@ -1416,21 +1440,45 @@ export default function NewAppointmentPage() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-4" style={{ gap: '8px' }}>
-                      {availableTimeSlots.map((time) => (
-                        <button
-                          key={time}
-                          onClick={() => setSelectedTime(time)}
-                          className="rounded-xl border-2 font-medium transition-all"
-                          style={{
-                            padding: '12px',
-                            background: selectedTime === time ? 'var(--accent-purple-bg)' : 'var(--bg-tertiary)',
-                            borderColor: selectedTime === time ? 'var(--accent-purple)' : 'var(--border-primary)',
-                            color: selectedTime === time ? 'var(--accent-purple)' : 'var(--text-secondary)'
-                          }}
-                        >
-                          {time}
-                        </button>
-                      ))}
+                      {getTimeSlotsForDate(selectedDate).map((time) => {
+                        const isBooked = bookedSlots.includes(time);
+                        return (
+                          <button
+                            key={time}
+                            onClick={() => !isBooked && setSelectedTime(time)}
+                            disabled={isBooked}
+                            className="rounded-xl border-2 font-medium transition-all"
+                            style={{
+                              padding: '12px',
+                              background: selectedTime === time
+                                ? 'var(--accent-purple-bg)'
+                                : isBooked
+                                  ? 'var(--bg-secondary)'
+                                  : 'var(--bg-tertiary)',
+                              borderColor: selectedTime === time
+                                ? 'var(--accent-purple)'
+                                : isBooked
+                                  ? 'var(--border-secondary)'
+                                  : 'var(--border-primary)',
+                              color: selectedTime === time
+                                ? 'var(--accent-purple)'
+                                : isBooked
+                                  ? 'var(--text-muted)'
+                                  : 'var(--text-secondary)',
+                              opacity: isBooked ? 0.5 : 1,
+                              cursor: isBooked ? 'not-allowed' : 'pointer'
+                            }}
+                            title={isBooked ? 'Horário já agendado' : time}
+                          >
+                            {time}
+                            {isBooked && (
+                              <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                                Ocupado
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
