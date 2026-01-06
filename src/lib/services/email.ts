@@ -26,7 +26,7 @@ apiInstance.setApiKey(
 )
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'matheusjx@hotmail.com'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').trim()
 const FROM_EMAIL = process.env.BREVO_FROM_EMAIL || 'noreply@petcareschedule.com'
 const FROM_NAME = process.env.BREVO_FROM_NAME || 'Pet Care Schedule'
 
@@ -64,9 +64,7 @@ export async function sendWelcomeEmail(
       subject: 'Bem-vindo ao Pet Care Schedule! 🐾',
       htmlContent,
       textContent: stripHtml(htmlContent),
-      params: {
-        trackingClicks: false
-      }
+      trackingClicks: false
     } as any)
 
     console.log('✅ Welcome email sent, messageId:', response.body?.messageId)
@@ -95,9 +93,7 @@ export async function sendAppointmentRequested(
       subject: `Agendamento Solicitado - ${data.petName}`,
       htmlContent,
       textContent: stripHtml(htmlContent),
-      params: {
-        trackingClicks: false
-      }
+      trackingClicks: false
     } as any
 
     console.log('📧 Sending email with data:', JSON.stringify(emailData, null, 2))
@@ -141,9 +137,7 @@ export async function sendAppointmentConfirmation(
       subject: `Agendamento Confirmado - ${data.petName}`,
       htmlContent,
       textContent: stripHtml(htmlContent),
-      params: {
-        trackingClicks: false
-      }
+      trackingClicks: false
     } as any)
 
     console.log('✅ Confirmation email sent, messageId:', response.body?.messageId)
@@ -171,9 +165,7 @@ export async function sendAppointmentReminder(
       subject: `Lembrete: Agendamento amanhã - ${data.petName}`,
       htmlContent,
       textContent: stripHtml(htmlContent),
-      params: {
-        trackingClicks: false
-      }
+      trackingClicks: false
     } as any);
 
     console.log('✅ Reminder email sent, messageId:', response.body?.messageId)
@@ -204,9 +196,7 @@ export async function sendAppointmentCancellation(
       subject: `Agendamento Cancelado - ${data.petName}`,
       htmlContent,
       textContent: stripHtml(htmlContent),
-      params: {
-        trackingClicks: false
-      }
+      trackingClicks: false
     } as any)
 
     console.log('✅ Cancellation email sent, messageId:', response.body?.messageId)
@@ -239,9 +229,7 @@ export async function sendNewAppointmentToAdmin(
       subject: `Novo Agendamento - ${data.petName} (${data.clientName})`,
       htmlContent,
       textContent: stripHtml(htmlContent),
-      params: {
-        trackingClicks: false
-      }
+      trackingClicks: false
     } as any
 
     console.log('📧 Sending admin email with data:', JSON.stringify(emailData, null, 2))
@@ -288,9 +276,7 @@ export async function sendAppointmentCancelledToAdmin(
       subject: `Agendamento Cancelado - ${data.petName} (${data.clientName})`,
       htmlContent,
       textContent: stripHtml(htmlContent),
-      params: {
-        trackingClicks: false
-      }
+      trackingClicks: false
     } as any)
 
     console.log('✅ Admin cancellation notification sent, messageId:', response.body?.messageId)
