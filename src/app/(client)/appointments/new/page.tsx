@@ -244,13 +244,25 @@ export default function NewAppointmentPage() {
         return;
       }
 
-      const { data: appointments } = await supabase
+      console.log('🔍 Buscando agendamentos para a data:', selectedDate);
+
+      const { data: appointments, error } = await supabase
         .from('appointments')
         .select('scheduled_time')
         .eq('scheduled_date', selectedDate)
         .in('status', ['pending', 'confirmed']);
 
+      if (error) {
+        console.error('❌ Erro ao buscar agendamentos:', error);
+        setBookedSlots([]);
+        return;
+      }
+
+      console.log('📅 Agendamentos encontrados:', appointments);
+
       const times = (appointments as any)?.map((a: any) => a.scheduled_time) || [];
+      console.log('⏰ Horários ocupados:', times);
+
       setBookedSlots(times);
     }
 
