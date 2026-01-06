@@ -62,14 +62,6 @@ export function newAppointmentAdminEmail(data: NewAppointmentAdminData): string 
             <span style="font-weight: 600; color: #f59e0b; font-size: 18px;">${formattedTime}</span>
           </td>
         </tr>
-        
-
-        <tr>
-          <td style="padding: 12px 0;">
-            <span style="color: #64748b; font-size: 14px;">link</span><br>
-            <span style="font-weight: 600; color: #7c3aed; font-size: 18px;">${appUrl}</span>
-          </td>
-        </tr>
       </table>
     </div>
 
