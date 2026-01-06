@@ -80,22 +80,39 @@ export async function sendAppointmentRequested(
 ): Promise<SendEmailResult> {
   try {
     console.log('📧 Sending appointment requested email to:', data.recipientEmail)
+    console.log('📧 From:', FROM_EMAIL, FROM_NAME)
 
     const htmlContent = appointmentRequestedEmail({ ...data, appUrl: APP_URL })
 
-    const response = await apiInstance.sendTransacEmail({
+    const emailData = {
       sender: { email: FROM_EMAIL, name: FROM_NAME },
       to: [{ email: data.recipientEmail }],
       subject: `Agendamento Solicitado - ${data.petName}`,
       htmlContent,
       textContent: stripHtml(htmlContent)
-    })
+    }
 
+    console.log('📧 Sending email with data:', JSON.stringify(emailData, null, 2))
+
+    const response = await apiInstance.sendTransacEmail(emailData)
+
+    console.log('📧 Brevo response:', response)
     console.log('✅ Appointment requested email sent, messageId:', response.body?.messageId)
     return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
     console.error('❌ Error sending appointment requested email:', err)
-    return { success: false, error: 'Failed to send email' }
+    console.error('❌ Error details:', JSON.stringify(err, null, 2))
+
+    // Extract more detailed error info
+    const errorMessage = err instanceof Error ? err.message : 'Failed to send email'
+    const errorDetails = (err as any).response?.body || (err as any).response?.data
+
+    console.error('❌ Brevo error details:', errorDetails)
+
+    return {
+      success: false,
+      error: errorMessage + (errorDetails ? `: ${JSON.stringify(errorDetails)}` : '')
+    }
   }
 }
 
@@ -191,6 +208,7 @@ export async function sendNewAppointmentToAdmin(
 ): Promise<SendEmailResult> {
   try {
     console.log('📧 Sending new appointment notification to admin:', ADMIN_EMAIL)
+    console.log('📧 From:', FROM_EMAIL, FROM_NAME)
 
     const htmlContent = newAppointmentAdminEmail({
       ...data,
@@ -198,19 +216,34 @@ export async function sendNewAppointmentToAdmin(
       appUrl: APP_URL
     })
 
-    const response = await apiInstance.sendTransacEmail({
+    const emailData = {
       sender: { email: FROM_EMAIL, name: FROM_NAME },
       to: [{ email: ADMIN_EMAIL }],
       subject: `Novo Agendamento - ${data.petName} (${data.clientName})`,
       htmlContent,
       textContent: stripHtml(htmlContent)
-    })
+    }
 
+    console.log('📧 Sending admin email with data:', JSON.stringify(emailData, null, 2))
+
+    const response = await apiInstance.sendTransacEmail(emailData)
+
+    console.log('📧 Brevo response:', response)
     console.log('✅ Admin notification sent, messageId:', response.body?.messageId)
     return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
     console.error('❌ Error sending admin notification:', err)
-    return { success: false, error: 'Failed to send email' }
+    console.error('❌ Error details:', JSON.stringify(err, null, 2))
+
+    const errorMessage = err instanceof Error ? err.message : 'Failed to send email'
+    const errorDetails = (err as any).response?.body || (err as any).response?.data
+
+    console.error('❌ Brevo error details:', errorDetails)
+
+    return {
+      success: false,
+      error: errorMessage + (errorDetails ? `: ${JSON.stringify(errorDetails)}` : '')
+    }
   }
 }
 
