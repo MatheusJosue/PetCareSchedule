@@ -258,10 +258,14 @@ export default function NewAppointmentPage() {
         return;
       }
 
-      console.log('📅 Agendamentos encontrados:', appointments);
+      console.log('📅 Agendamentos encontrados (raw):', appointments);
 
-      const times = (appointments as any)?.map((a: any) => a.scheduled_time) || [];
-      console.log('⏰ Horários ocupados:', times);
+      // Remover os segundos do horário para bater com o formato dos slots (HH:MM)
+      const times = (appointments as any)?.map((a: any) => {
+        // O banco retorna "18:00:00", precisamos de "18:00"
+        return a.scheduled_time?.substring(0, 5);
+      }).filter(Boolean) || [];
+      console.log('⏰ Horários ocupados (normalizados):', times);
 
       setBookedSlots(times);
     }
