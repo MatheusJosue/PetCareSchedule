@@ -519,6 +519,26 @@ export default function NewAppointmentPage() {
         admin_notes: null;
       }> = [];
 
+      // VERIFICAR SE JÁ EXISTE AGENDAMENTO NO MESMO HORÁRIO
+      const { data: existingAppointments, error: checkError } = await supabase
+        .from('appointments')
+        .select('id, pet:pets(name), service:services(name)')
+        .eq('scheduled_date', selectedDate)
+        .eq('scheduled_time', selectedTime)
+        .in('status', ['pending', 'confirmed'])
+        .limit(1);
+
+      if (checkError) throw checkError;
+
+      if (existingAppointments && existingAppointments.length > 0) {
+        const existing = existingAppointments[0] as any;
+        addToast(
+          `Já existe um agendamento para ${existing.pet?.name || 'um pet'} - ${existing.service?.name || 'um serviço'} às ${selectedTime}`,
+          "error"
+        );
+        return;
+      }
+
       for (const pet of selectedPets) {
         for (const service of selectedServices) {
           appointments.push({
