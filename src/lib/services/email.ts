@@ -36,7 +36,9 @@ console.log('📧 Email service initialized (Brevo):', {
   adminEmail: ADMIN_EMAIL,
   fromEmail: FROM_EMAIL,
   fromName: FROM_NAME,
-  appUrl: APP_URL
+  appUrl: APP_URL,
+  envAppUrl: process.env.NEXT_PUBLIC_APP_URL,
+  nodeEnv: process.env.NODE_ENV
 })
 
 export interface SendEmailResult {
