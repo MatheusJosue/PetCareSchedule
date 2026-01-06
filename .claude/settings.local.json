@@ -21,7 +21,9 @@
       "Bash(node:*)",
       "Bash(findstr:*)",
       "Bash(cat:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(npx next build:*)",
+      "Bash(dir:*)"
     ]
   }
 }

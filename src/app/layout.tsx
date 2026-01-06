@@ -18,8 +18,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Pet Care - Agendamento de Banho e Tosa",
   description: "Sistema de agendamento de banho e tosa domiciliar para seu pet",
+  manifest: "/manifest.json",
   icons: {
-    icon: "/favicon.ico",
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Pet Care",
   },
 }
 
@@ -27,7 +34,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#9333ea",
+  themeColor: "#7c3aed",
 }
 
 export default function RootLayout({

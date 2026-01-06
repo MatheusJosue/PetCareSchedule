@@ -238,13 +238,13 @@ export default function NewAppointmentPage() {
 
   // Buscar agendamentos existentes quando a data mudar
   useEffect(() => {
+    let isCancelled = false;
+
     async function fetchBookedSlots() {
       if (!selectedDate) {
-        setBookedSlots([]);
+        if (!isCancelled) setBookedSlots([]);
         return;
       }
-
-      console.log('🔍 Buscando agendamentos para a data:', selectedDate);
 
       const { data: appointments, error } = await supabase
         .from('appointments')
@@ -252,25 +252,29 @@ export default function NewAppointmentPage() {
         .eq('scheduled_date', selectedDate)
         .in('status', ['pending', 'confirmed']);
 
+      // Evitar atualizar se a data mudou durante a requisição
+      if (isCancelled) return;
+
       if (error) {
-        console.error('❌ Erro ao buscar agendamentos:', error);
+        console.error('Error fetching appointments:', error);
         setBookedSlots([]);
         return;
       }
 
-      console.log('📅 Agendamentos encontrados (raw):', appointments);
-
       // Remover os segundos do horário para bater com o formato dos slots (HH:MM)
       const times = (appointments as any)?.map((a: any) => {
-        // O banco retorna "18:00:00", precisamos de "18:00"
         return a.scheduled_time?.substring(0, 5);
       }).filter(Boolean) || [];
-      console.log('⏰ Horários ocupados (normalizados):', times);
 
       setBookedSlots(times);
     }
 
     fetchBookedSlots();
+
+    // Cleanup function para cancelar requisições antigas
+    return () => {
+      isCancelled = true;
+    };
   }, [selectedDate]);
 
   // Generate available dates for current month and next month
@@ -333,8 +337,10 @@ export default function NewAppointmentPage() {
   };
 
   const availableDates = getAvailableDates();
+
+  const allSlots = selectedDate ? getTimeSlotsForDate(selectedDate) : [];
   const availableTimeSlots = selectedDate
-    ? getTimeSlotsForDate(selectedDate).filter(time => !bookedSlots.includes(time))
+    ? allSlots.filter(time => !bookedSlots.includes(time))
     : [];
 
   // Ícone do serviço baseado no nome

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import withPWA from "next-pwa";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
@@ -11,6 +12,15 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Usar webpack em vez de Turbopack para compatibilidade com PWA
+  webpack: (config, { isServer }) => {
+    return config;
+  },
 };
 
-export default nextConfig;
+export default withPWA({
+  dest: "public",
+  register: true,
+  skipWaiting: true,
+  disable: process.env.NODE_ENV === "development",
+})(nextConfig as any);
