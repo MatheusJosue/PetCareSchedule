@@ -250,7 +250,7 @@ export default function NewAppointmentPage() {
         .eq('scheduled_date', selectedDate)
         .in('status', ['pending', 'confirmed']);
 
-      const times = appointments?.map(a => a.scheduled_time) || [];
+      const times = (appointments as any)?.map((a: any) => a.scheduled_time) || [];
       setBookedSlots(times);
     }
 
