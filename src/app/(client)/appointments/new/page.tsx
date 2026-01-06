@@ -615,6 +615,11 @@ export default function NewAppointmentPage() {
         }
       }
 
+      // Adicionar o horário agendado à lista de ocupados
+      setBookedSlots(prev => [...prev, selectedTime]);
+      // Limpar o horário selecionado para evitar confusão
+      setSelectedTime(null);
+
       const totalAppointments = selectedPets.length * selectedServices.length;
       const petNames = selectedPets.map(p => p.name).join(', ');
       addToast(`${totalAppointments} agendamento${totalAppointments > 1 ? 's' : ''} solicitado${totalAppointments > 1 ? 's' : ''} com sucesso para ${petNames}!`, "success");
