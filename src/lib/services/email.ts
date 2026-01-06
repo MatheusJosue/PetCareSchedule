@@ -1,4 +1,3 @@
-import Courier from '@trycourier/courier'
 import {
   appointmentConfirmationEmail,
   appointmentRequestedEmail,
@@ -15,30 +14,30 @@ import {
   type WelcomeData,
   type AppointmentCancelledAdminData
 } from '../email-templates'
+import { TransactionalEmailsApi } from '@getbrevo/brevo'
 
-const courier = new Courier({ apiKey: process.env.COURIER_API_KEY })
+// Initialize Brevo API
+const apiInstance = new TransactionalEmailsApi()
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'matheusjxcerqueira@gmail.com'
+// Configure API key
+apiInstance.setApiKey(
+  0,
+  process.env.BREVO_API_KEY || ''
+)
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'matheusjx@hotmail.com'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+const FROM_EMAIL = process.env.BREVO_FROM_EMAIL || 'noreply@petcareschedule.com'
+const FROM_NAME = process.env.BREVO_FROM_NAME || 'Pet Care Schedule'
 
 // Log configuration
-console.log('📧 Email service initialized:', {
-  hasApiKey: !!process.env.COURIER_API_KEY,
-  apiKeyPrefix: process.env.COURIER_API_KEY?.substring(0, 10),
+console.log('📧 Email service initialized (Brevo):', {
+  hasApiKey: !!process.env.BREVO_API_KEY,
   adminEmail: ADMIN_EMAIL,
+  fromEmail: FROM_EMAIL,
+  fromName: FROM_NAME,
   appUrl: APP_URL
 })
-
-// ID do template no Courier - você precisa criar estes templates no dashboard do Courier
-const TEMPLATE_IDS = {
-  welcome: process.env.COURIER_TEMPLATE_WELCOME || '',
-  appointmentRequested: process.env.COURIER_TEMPLATE_APPOINTMENT_REQUESTED || '',
-  appointmentConfirmed: process.env.COURIER_TEMPLATE_APPOINTMENT_CONFIRMED || '',
-  appointmentReminder: process.env.COURIER_TEMPLATE_APPOINTMENT_REMINDER || '',
-  appointmentCancelled: process.env.COURIER_TEMPLATE_APPOINTMENT_CANCELLED || '',
-  newAppointmentAdmin: process.env.COURIER_TEMPLATE_NEW_APPOINTMENT_ADMIN || '',
-  appointmentCancelledAdmin: process.env.COURIER_TEMPLATE_APPOINTMENT_CANCELLED_ADMIN || '',
-}
 
 export interface SendEmailResult {
   success: boolean
@@ -53,29 +52,22 @@ export async function sendWelcomeEmail(
   data: Omit<WelcomeData, 'appUrl'>
 ): Promise<SendEmailResult> {
   try {
-    // Se não tiver template configurado no Courier, usa HTML direto
-    if (!TEMPLATE_IDS.welcome) {
-      return await sendEmailDirect({
-        to: data.recipientEmail,
-        subject: 'Bem-vindo ao Pet Care Schedule! 🐾',
-        html: welcomeEmail({ ...data, appUrl: APP_URL })
-      })
-    }
+    console.log('📧 Sending welcome email to:', data.recipientEmail)
 
-    const { requestId } = await courier.send.message({
-      message: {
-        to: { email: data.recipientEmail },
-        template: TEMPLATE_IDS.welcome,
-        data: {
-          recipientName: data.recipientName,
-          appUrl: APP_URL
-        }
-      }
+    const htmlContent = welcomeEmail({ ...data, appUrl: APP_URL })
+
+    const response = await apiInstance.sendTransacEmail({
+      sender: { email: FROM_EMAIL, name: FROM_NAME },
+      to: [{ email: data.recipientEmail }],
+      subject: 'Bem-vindo ao Pet Care Schedule! 🐾',
+      htmlContent,
+      textContent: stripHtml(htmlContent)
     })
 
-    return { success: true, messageId: requestId }
+    console.log('✅ Welcome email sent, messageId:', response.body?.messageId)
+    return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
-    console.error('Exception sending welcome email:', err)
+    console.error('❌ Error sending welcome email:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }
@@ -88,39 +80,21 @@ export async function sendAppointmentRequested(
 ): Promise<SendEmailResult> {
   try {
     console.log('📧 Sending appointment requested email to:', data.recipientEmail)
-    console.log('📧 Template ID:', TEMPLATE_IDS.appointmentRequested || 'none (using direct email)')
 
-    if (!TEMPLATE_IDS.appointmentRequested) {
-      console.log('📧 Using direct email (no template)')
-      const result = await sendEmailDirect({
-        to: data.recipientEmail,
-        subject: `Agendamento Solicitado - ${data.petName}`,
-        html: appointmentRequestedEmail({ ...data, appUrl: APP_URL })
-      })
-      console.log('📧 Direct email result:', result)
-      return result
-    }
+    const htmlContent = appointmentRequestedEmail({ ...data, appUrl: APP_URL })
 
-    console.log('📧 Using Courier template:', TEMPLATE_IDS.appointmentRequested)
-    const { requestId } = await courier.send.message({
-      message: {
-        to: { email: data.recipientEmail },
-        template: TEMPLATE_IDS.appointmentRequested,
-        data: {
-          recipientName: data.recipientName,
-          petName: data.petName,
-          serviceName: data.serviceName,
-          formattedDate: new Date(data.scheduledDate).toLocaleDateString('pt-BR'),
-          formattedTime: data.scheduledTime,
-          appUrl: APP_URL
-        }
-      }
+    const response = await apiInstance.sendTransacEmail({
+      sender: { email: FROM_EMAIL, name: FROM_NAME },
+      to: [{ email: data.recipientEmail }],
+      subject: `Agendamento Solicitado - ${data.petName}`,
+      htmlContent,
+      textContent: stripHtml(htmlContent)
     })
 
-    console.log('📧 Courier message sent successfully, requestId:', requestId)
-    return { success: true, messageId: requestId }
+    console.log('✅ Appointment requested email sent, messageId:', response.body?.messageId)
+    return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
-    console.error('❌ Exception sending appointment requested email:', err)
+    console.error('❌ Error sending appointment requested email:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }
@@ -132,32 +106,22 @@ export async function sendAppointmentConfirmation(
   data: Omit<AppointmentConfirmationData, 'appUrl'>
 ): Promise<SendEmailResult> {
   try {
-    if (!TEMPLATE_IDS.appointmentConfirmed) {
-      return await sendEmailDirect({
-        to: data.recipientEmail,
-        subject: `Agendamento Confirmado - ${data.petName}`,
-        html: appointmentConfirmationEmail({ ...data, appUrl: APP_URL })
-      })
-    }
+    console.log('📧 Sending appointment confirmation email to:', data.recipientEmail)
 
-    const { requestId } = await courier.send.message({
-      message: {
-        to: { email: data.recipientEmail },
-        template: TEMPLATE_IDS.appointmentConfirmed,
-        data: {
-          recipientName: data.recipientName,
-          petName: data.petName,
-          serviceName: data.serviceName,
-          formattedDate: new Date(data.scheduledDate).toLocaleDateString('pt-BR'),
-          formattedTime: data.scheduledTime,
-          appUrl: APP_URL
-        }
-      }
+    const htmlContent = appointmentConfirmationEmail({ ...data, appUrl: APP_URL })
+
+    const response = await apiInstance.sendTransacEmail({
+      sender: { email: FROM_EMAIL, name: FROM_NAME },
+      to: [{ email: data.recipientEmail }],
+      subject: `Agendamento Confirmado - ${data.petName}`,
+      htmlContent,
+      textContent: stripHtml(htmlContent)
     })
 
-    return { success: true, messageId: requestId }
+    console.log('✅ Confirmation email sent, messageId:', response.body?.messageId)
+    return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
-    console.error('Exception sending confirmation email:', err)
+    console.error('❌ Error sending confirmation email:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }
@@ -169,32 +133,22 @@ export async function sendAppointmentReminder(
   data: Omit<AppointmentReminderData, 'appUrl'>
 ): Promise<SendEmailResult> {
   try {
-    if (!TEMPLATE_IDS.appointmentReminder) {
-      return await sendEmailDirect({
-        to: data.recipientEmail,
-        subject: `Lembrete: Agendamento amanhã - ${data.petName}`,
-        html: appointmentReminderEmail({ ...data, appUrl: APP_URL })
-      })
-    }
+    console.log('📧 Sending appointment reminder email to:', data.recipientEmail)
 
-    const { requestId } = await courier.send.message({
-      message: {
-        to: { email: data.recipientEmail },
-        template: TEMPLATE_IDS.appointmentReminder,
-        data: {
-          recipientName: data.recipientName,
-          petName: data.petName,
-          serviceName: data.serviceName,
-          formattedDate: new Date(data.scheduledDate).toLocaleDateString('pt-BR'),
-          formattedTime: data.scheduledTime,
-          appUrl: APP_URL
-        }
-      }
-    })
+    const htmlContent = appointmentReminderEmail({ ...data, appUrl: APP_URL })
 
-    return { success: true, messageId: requestId }
+    const response = await apiInstance.sendTransacEmail({
+      sender: { email: FROM_EMAIL, name: FROM_NAME },
+      to: [{ email: data.recipientEmail }],
+      subject: `Lembrete: Agendamento amanhã - ${data.petName}`,
+      htmlContent,
+      textContent: stripHtml(htmlContent)
+    });
+
+    console.log('✅ Reminder email sent, messageId:', response.body?.messageId)
+    return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
-    console.error('Exception sending reminder email:', err)
+    console.error('❌ Error sending reminder email:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }
@@ -206,35 +160,25 @@ export async function sendAppointmentCancellation(
   data: Omit<AppointmentCancellationData, 'appUrl'>
 ): Promise<SendEmailResult> {
   try {
-    if (!TEMPLATE_IDS.appointmentCancelled) {
-      return await sendEmailDirect({
-        to: data.recipientEmail,
-        subject: `Agendamento Cancelado - ${data.petName}`,
-        html: appointmentCancellationEmail({
-          ...data,
-          appUrl: APP_URL
-        })
-      })
-    }
+    console.log('📧 Sending appointment cancellation email to:', data.recipientEmail)
 
-    const { requestId } = await courier.send.message({
-      message: {
-        to: { email: data.recipientEmail },
-        template: TEMPLATE_IDS.appointmentCancelled,
-        data: {
-          recipientName: data.recipientName,
-          petName: data.petName,
-          serviceName: data.serviceName,
-          cancelledBy: data.cancelledBy,
-          reason: data.reason,
-          appUrl: APP_URL
-        }
-      }
+    const htmlContent = appointmentCancellationEmail({
+      ...data,
+      appUrl: APP_URL
     })
 
-    return { success: true, messageId: requestId }
+    const response = await apiInstance.sendTransacEmail({
+      sender: { email: FROM_EMAIL, name: FROM_NAME },
+      to: [{ email: data.recipientEmail }],
+      subject: `Agendamento Cancelado - ${data.petName}`,
+      htmlContent,
+      textContent: stripHtml(htmlContent)
+    })
+
+    console.log('✅ Cancellation email sent, messageId:', response.body?.messageId)
+    return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
-    console.error('Exception sending cancellation email:', err)
+    console.error('❌ Error sending cancellation email:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }
@@ -246,39 +190,26 @@ export async function sendNewAppointmentToAdmin(
   data: Omit<NewAppointmentAdminData, 'appUrl' | 'adminEmail'>
 ): Promise<SendEmailResult> {
   try {
-    if (!TEMPLATE_IDS.newAppointmentAdmin) {
-      return await sendEmailDirect({
-        to: ADMIN_EMAIL,
-        subject: `Novo Agendamento - ${data.petName} (${data.clientName})`,
-        html: newAppointmentAdminEmail({
-          ...data,
-          adminEmail: ADMIN_EMAIL,
-          appUrl: APP_URL
-        })
-      })
-    }
+    console.log('📧 Sending new appointment notification to admin:', ADMIN_EMAIL)
 
-    const { requestId } = await courier.send.message({
-      message: {
-        to: { email: ADMIN_EMAIL },
-        template: TEMPLATE_IDS.newAppointmentAdmin,
-        data: {
-          adminName: 'Administrador',
-          clientName: data.clientName,
-          clientEmail: data.clientEmail,
-          clientPhone: data.clientPhone,
-          petName: data.petName,
-          serviceName: data.serviceName,
-          formattedDate: new Date(data.scheduledDate).toLocaleDateString('pt-BR'),
-          formattedTime: data.scheduledTime,
-          appUrl: APP_URL
-        }
-      }
+    const htmlContent = newAppointmentAdminEmail({
+      ...data,
+      adminEmail: ADMIN_EMAIL,
+      appUrl: APP_URL
     })
 
-    return { success: true, messageId: requestId }
+    const response = await apiInstance.sendTransacEmail({
+      sender: { email: FROM_EMAIL, name: FROM_NAME },
+      to: [{ email: ADMIN_EMAIL }],
+      subject: `Novo Agendamento - ${data.petName} (${data.clientName})`,
+      htmlContent,
+      textContent: stripHtml(htmlContent)
+    })
+
+    console.log('✅ Admin notification sent, messageId:', response.body?.messageId)
+    return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
-    console.error('Exception sending admin notification email:', err)
+    console.error('❌ Error sending admin notification:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }
@@ -290,83 +221,46 @@ export async function sendAppointmentCancelledToAdmin(
   data: Omit<AppointmentCancelledAdminData, 'appUrl' | 'adminEmail'>
 ): Promise<SendEmailResult> {
   try {
-    if (!TEMPLATE_IDS.appointmentCancelledAdmin) {
-      return await sendEmailDirect({
-        to: ADMIN_EMAIL,
-        subject: `Agendamento Cancelado - ${data.petName} (${data.clientName})`,
-        html: appointmentCancelledAdminEmail({
-          ...data,
-          adminEmail: ADMIN_EMAIL,
-          appUrl: APP_URL
-        })
-      })
-    }
+    console.log('📧 Sending cancellation notification to admin:', ADMIN_EMAIL)
 
-    const { requestId } = await courier.send.message({
-      message: {
-        to: { email: ADMIN_EMAIL },
-        template: TEMPLATE_IDS.appointmentCancelledAdmin,
-        data: {
-          adminName: 'Administrador',
-          clientName: data.clientName,
-          clientEmail: data.clientEmail,
-          clientPhone: data.clientPhone,
-          petName: data.petName,
-          serviceName: data.serviceName,
-          cancelledBy: data.cancelledBy,
-          reason: data.reason,
-          formattedDate: new Date(data.scheduledDate).toLocaleDateString('pt-BR'),
-          formattedTime: data.scheduledTime,
-          appUrl: APP_URL
-        }
-      }
+    const htmlContent = appointmentCancelledAdminEmail({
+      ...data,
+      adminEmail: ADMIN_EMAIL,
+      appUrl: APP_URL
     })
 
-    return { success: true, messageId: requestId }
+    const response = await apiInstance.sendTransacEmail({
+      sender: { email: FROM_EMAIL, name: FROM_NAME },
+      to: [{ email: ADMIN_EMAIL }],
+      subject: `Agendamento Cancelado - ${data.petName} (${data.clientName})`,
+      htmlContent,
+      textContent: stripHtml(htmlContent)
+    })
+
+    console.log('✅ Admin cancellation notification sent, messageId:', response.body?.messageId)
+    return { success: true, messageId: response.body?.messageId?.toString() }
   } catch (err) {
-    console.error('Exception sending cancellation notification to admin:', err)
+    console.error('❌ Error sending admin cancellation notification:', err)
     return { success: false, error: 'Failed to send email' }
   }
 }
 
 /**
- * Função auxiliar para enviar email diretamente (sem template Courier)
- * Usa o Courier API com conteúdo inline
+ * Helper function to strip HTML tags
  */
-async function sendEmailDirect({ to, subject, html }: { to: string; subject: string; html: string }): Promise<SendEmailResult> {
-  try {
-    console.log('📧 sendEmailDirect called with:', { to, subject })
-
-    const messagePayload = {
-      message: {
-        to: { email: to },
-        content: {
-          title: subject,
-          body: html
-        }
-      }
-    }
-
-    console.log('📧 Sending to Courier with payload:', JSON.stringify(messagePayload, null, 2))
-
-    const response = await courier.send.message(messagePayload)
-
-    console.log('📧 Courier response:', response)
-
-    const { requestId } = response
-
-    if (!requestId) {
-      console.error('📧 No requestId in response!')
-      return { success: false, error: 'No requestId returned from Courier' }
-    }
-
-    console.log('✅ Email sent successfully, requestId:', requestId)
-    return { success: true, messageId: requestId }
-  } catch (error) {
-    console.error('❌ Error sending email directly:', error)
-    console.error('❌ Error details:', JSON.stringify(error, null, 2))
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to send email' }
-  }
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>.*?<\/style>/gi, '')
+    .replace(/<script[^>]*>.*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /**
